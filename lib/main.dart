@@ -10,7 +10,9 @@ import 'market_data/twelve_data_candles.dart';
 import 'market_data/swissquote_provider.dart';
 import 'chart/candle_chart.dart';
 import 'analytics.dart';
+import 'ai_brain.dart';
 import 'alerts.dart';
+import 'auto_trade.dart';
 import 'notification_log.dart';
 import 'sessions.dart';
 import 'slippage.dart';
@@ -801,9 +803,6 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
                   app.refreshNotifUnread();
                 },
               ),
-              TextButton(
-                  onPressed: app.lock,
-                  child: const Text('Lock', style: TextStyle(color: cDim)))
             ],
           ),
           body: IndexedStack(
@@ -813,6 +812,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               PositionsTab(app: app),
               AddTab(app: app),
               StatsTab(app: app),
+              AiTab(app: app),
             ],
           ),
           bottomNavigationBar: NavigationBar(
@@ -838,6 +838,8 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               const NavigationDestination(icon: Icon(Icons.add), label: 'Add'),
               const NavigationDestination(
                   icon: Icon(Icons.bar_chart), label: 'Stats'),
+              const NavigationDestination(
+                  icon: Icon(Icons.smart_toy_outlined), label: 'AI'),
             ],
           ),
         );
@@ -2638,3 +2640,185 @@ class EquityPainter extends CustomPainter {
   bool shouldRepaint(EquityPainter old) => true;
 }
 
+
+/// AI tab: Groq-brain auto-trade controls + full AI log. Every decision is
+/// visible; nothing trades unless the user switches Auto mode on.
+class AiTab extends StatefulWidget {
+  final dynamic app;
+  const AiTab({super.key, required this.app});
+
+  @override
+  State<AiTab> createState() => _AiTabState();
+}
+
+class _AiTabState extends State<AiTab> {
+  AutoTradeStatus? _status;
+  List<AiLogEntry> _log = [];
+  bool _thinking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final prefs = await SharedPreferences.getInstance();
+    final st = await AutoTrade.status(prefs);
+    if (mounted) {
+      setState(() {
+        _status = st;
+        _log = AiLog.read(prefs);
+      });
+    }
+  }
+
+  String _fmt(DateTime t) =>
+      '${t.day}/${t.month} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final st = _status;
+    if (st == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          color: cCard,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.smart_toy_outlined, color: cDim, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                    child: Text('AI auto-trade',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15))),
+                Switch(
+                  value: st.enabled,
+                  onChanged: (v) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await AutoTrade.setEnabled(prefs, v);
+                    _refresh();
+                  },
+                ),
+              ]),
+              const SizedBox(height: 4),
+              Text(
+                !st.keyConfigured
+                    ? 'AI key missing in this build - cannot run'
+                    : st.pausedReason != null
+                        ? 'Paused: ${st.pausedReason}'
+                        : st.enabled
+                            ? 'On - thinks every 15 min, trades only when confident'
+                            : 'Off - nothing trades',
+                style: TextStyle(
+                    color: !st.keyConfigured || st.pausedReason != null
+                        ? cRed
+                        : cDim,
+                    fontSize: 12),
+              ),
+              if (st.pausedReason != null && st.enabled) ...[
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await AutoTrade.resume(prefs);
+                    _refresh();
+                  },
+                  child: const Text('Resume'),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Text(
+                  'Today: ${st.tradesToday}/${AutoTrade.maxTradesPerDay} trades - loss streak ${st.consecutiveLosses} - last run ${st.lastRunAt == null ? 'never' : _fmt(st.lastRunAt!)}',
+                  style: const TextStyle(color: cDim, fontSize: 12)),
+              const SizedBox(height: 10),
+              Row(children: [
+                const Text('Size per trade', style: TextStyle(fontSize: 12, color: cDim)),
+                const SizedBox(width: 12),
+                DropdownButton<double>(
+                  value: st.sizePct,
+                  dropdownColor: cCard,
+                  items: const [
+                    DropdownMenuItem(value: 5.0, child: Text('5% of balance')),
+                    DropdownMenuItem(value: 10.0, child: Text('10% of balance')),
+                    DropdownMenuItem(value: 15.0, child: Text('15% of balance')),
+                    DropdownMenuItem(value: 20.0, child: Text('20% of balance')),
+                    DropdownMenuItem(value: 25.0, child: Text('25% of balance')),
+                  ],
+                  onChanged: (v) async {
+                    if (v == null) return;
+                    final prefs = await SharedPreferences.getInstance();
+                    await AutoTrade.setSizePct(prefs, v);
+                    _refresh();
+                  },
+                ),
+              ]),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _thinking || !st.enabled
+                      ? null
+                      : () async {
+                          setState(() => _thinking = true);
+                          final prefs = await SharedPreferences.getInstance();
+                          final result =
+                              await AutoTrade.think(prefs, manual: true);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(result)));
+                          }
+                          setState(() => _thinking = false);
+                          _refresh();
+                        },
+                  icon: _thinking
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.psychology, size: 18),
+                  label: Text(_thinking ? 'Thinking...' : 'Think now'),
+                ),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text('AI log',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+        const SizedBox(height: 6),
+        if (_log.isEmpty)
+          const Text('No AI activity yet. Switch auto-trade on.',
+              style: TextStyle(color: cDim, fontSize: 12))
+        else
+          ..._log.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(
+                    e.kind == 'trade'
+                        ? Icons.swap_vert
+                        : e.kind == 'pause'
+                            ? Icons.pause_circle_outline
+                            : e.kind == 'error'
+                                ? Icons.error_outline
+                                : Icons.psychology,
+                    size: 14,
+                    color: e.kind == 'error' || e.kind == 'pause' ? cRed : cDim,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(e.text,
+                          style: const TextStyle(fontSize: 12))),
+                  Text(_fmt(e.at),
+                      style: const TextStyle(color: cDim, fontSize: 10)),
+                ]),
+              )),
+      ],
+    );
+  }
+}

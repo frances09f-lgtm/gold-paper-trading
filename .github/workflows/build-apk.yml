@@ -27,7 +27,7 @@ jobs:
           GP
       - run: flutter pub get
       - run: flutter test || true
-      - run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} -v --dart-define=MARKET_DATA_API_KEY=${{ secrets.MARKET_DATA_API_KEY }}
+      - run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }} -v --dart-define=MARKET_DATA_API_KEY=${{ secrets.MARKET_DATA_API_KEY }} --dart-define=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: oro-release-apk

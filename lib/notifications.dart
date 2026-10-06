@@ -13,6 +13,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
+
+import 'auto_trade.dart';
 import 'notification_log.dart';
 
 const String bgTaskName = 'oroBackgroundCheck';
@@ -385,6 +387,12 @@ Future<void> _bgCheck() async {
   if (quote != null) {
     await prefs.setString('tj_bg_last_run', DateTime.now().toIso8601String());
   }
+
+  // AI auto-trade: the brain runs after position housekeeping so a fresh
+  // close is seen before the next decision. Never let it break the worker.
+  try {
+    await AutoTrade.think(prefs);
+  } catch (_) {}
 }
 
 String _qty(Map<String, dynamic> p) =>

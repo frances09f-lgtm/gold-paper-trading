@@ -984,6 +984,15 @@ class _TradeTabState extends State<TradeTab> {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
+        CandleChartPanel(
+          loader: widget.candleLoaderOverride ??
+              (_candles == null
+                  ? null
+                  : (iv) => _candles.fetchCandles(Instrument.xauUsd,
+                      interval: iv, limit: 120)),
+          livePrice: app.price,
+        ),
+        const SizedBox(height: 10),
         card(Row(
           children: [
             Expanded(
@@ -1016,15 +1025,6 @@ class _TradeTabState extends State<TradeTab> {
         )),
         const SizedBox(height: 10),
         const SessionsStrip(),
-        const SizedBox(height: 10),
-        CandleChartPanel(
-          loader: widget.candleLoaderOverride ??
-              (_candles == null
-                  ? null
-                  : (iv) => _candles.fetchCandles(Instrument.xauUsd,
-                      interval: iv, limit: 120)),
-          livePrice: app.price,
-        ),
         const SizedBox(height: 10),
         const Text('New order',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
@@ -1585,6 +1585,24 @@ class _PositionsTabState extends State<PositionsTab> {
               ]),
             ]),
           ),
+        // User request: current gold price visible with the positions.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
+          child: Row(children: [
+            const Text('XAU/USD',
+                style: TextStyle(color: cDim, fontSize: 12)),
+            const SizedBox(width: 8),
+            Text(app.priceOk ? '\$${fmt(app.price)}' : '--',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: app.priceFresh ? Colors.white : cDim)),
+            const SizedBox(width: 8),
+            if (app.bid != null && app.ask != null)
+              Text('Bid ${fmt(app.bid)} · Ask ${fmt(app.ask)}',
+                  style: const TextStyle(color: cDim, fontSize: 11)),
+          ]),
+        ),
         Expanded(
           child: showHistory ? _historyList(_filteredHist(hist)) : _openList(open),
         ),

@@ -176,6 +176,32 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('trend mode draws a line with two taps', (tester) async {
+    await loadFonts();
+    final data = fakeCandles(60);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 380,
+          height: 340,
+          child: CandleChartPanel(loader: (iv) async => data),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trend'));
+    await tester.pumpAndSettle();
+    final center = tester.getCenter(find.byType(CandleChartPanel));
+    await tester.tapAt(Offset(center.dx - 80, center.dy - 20));
+    await tester.pumpAndSettle();
+    await tester.tapAt(Offset(center.dx + 60, center.dy + 10));
+    await tester.pumpAndSettle();
+    final state =
+        tester.state<CandleChartPanelState>(find.byType(CandleChartPanel));
+    expect(state.trendLines.length, 1);
+    expect(state.pendingTrend, isNull);
+  });
+
   testWidgets('interval switch reloads', (tester) async {
     await loadFonts();
     final calls = <String>[];

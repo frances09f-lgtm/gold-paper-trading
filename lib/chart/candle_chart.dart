@@ -20,6 +20,16 @@ class DrawnLine {
   const DrawnLine(this.price, this.name);
 }
 
+/// A user-drawn trend line (spec 9), anchored by candle TIME + price so it
+/// stays attached to the same market points as new candles arrive.
+class TrendLine {
+  final DateTime t1;
+  final double p1;
+  final DateTime t2;
+  final double p2;
+  const TrendLine(this.t1, this.p1, this.t2, this.p2);
+}
+
 class ChartInterval {
   final String code; // provider interval code
   final String label;
@@ -63,7 +73,10 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   bool rsiOn = false;
   bool macdOn = false;
   bool drawMode = false;
+  bool trendMode = false;
   final List<DrawnLine> hLines = []; // user-drawn named price levels
+  final List<TrendLine> trendLines = []; // user-drawn trend lines
+  TrendLine? pendingTrend; // first anchor set, waiting for the second tap
 
   @override
   void initState() {
@@ -78,14 +91,42 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('tj_draw_lines');
-      if (raw == null) return;
-      final list = jsonDecode(raw) as List;
+      final rawT = prefs.getString('tj_draw_trends');
       setState(() {
-        hLines
-          ..clear()
-          ..addAll(list.map((e) => DrawnLine(
-              (e['p'] as num).toDouble(), e['n']?.toString() ?? 'Level')));
+        if (raw != null) {
+          final list = jsonDecode(raw) as List;
+          hLines
+            ..clear()
+            ..addAll(list.map((e) => DrawnLine(
+                (e['p'] as num).toDouble(), e['n']?.toString() ?? 'Level')));
+        }
+        if (rawT != null) {
+          final list = jsonDecode(rawT) as List;
+          trendLines
+            ..clear()
+            ..addAll(list.map((e) => TrendLine(
+                DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
+                (e['p1'] as num).toDouble(),
+                DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
+                (e['p2'] as num).toDouble())));
+        }
       });
+    } catch (_) {}
+  }
+
+  Future<void> _saveTrends() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'tj_draw_trends',
+          jsonEncode(trendLines
+              .map((e) => {
+                    't1': e.t1.millisecondsSinceEpoch,
+                    'p1': e.p1,
+                    't2': e.t2.millisecondsSinceEpoch,
+                    'p2': e.p2,
+                  })
+              .toList()));
     } catch (_) {}
   }
 
@@ -125,7 +166,32 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     final range = hi - lo;
     final idx = hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
-    if (idx < 0) return;
+    if (idx < 0) {
+      // no horizontal level near - try trend lines (pixel-space distance)
+      final tIdx = _trendHit(pos, Size(size.width, plotH), hi, lo);
+      if (tIdx < 0) return;
+      final del = await showDialog<bool>(
+        context: context,
+        builder: (dCtx) => AlertDialog(
+          backgroundColor: const Color(0xFF161B24),
+          title: const Text('Trend line', style: TextStyle(fontSize: 16)),
+          content: const Text('Delete this trend line?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dCtx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dCtx, true),
+                child: const Text('Delete')),
+          ],
+        ),
+      );
+      if (del == true) {
+        setState(() => trendLines.removeAt(tIdx));
+        _saveTrends();
+      }
+      return;
+    }
     final line = hLines[idx];
     final ctrl = TextEditingController(text: line.name);
     final act = await showDialog<String>(
@@ -247,7 +313,16 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             _indChip('MACD', macdOn, const Color(0xFFF27EA9),
                 () => setState(() => macdOn = !macdOn)),
             _indChip('Draw', drawMode, const Color(0xFF5EE0A0),
-                () => setState(() => drawMode = !drawMode)),
+                () => setState(() {
+                      drawMode = !drawMode;
+                      if (drawMode) trendMode = false;
+                    })),
+            _indChip('Trend', trendMode, const Color(0xFF6FD3E0),
+                () => setState(() {
+                      trendMode = !trendMode;
+                      if (trendMode) drawMode = false;
+                      pendingTrend = null;
+                    })),
             if (loading)
               const SizedBox(
                   width: 12,
@@ -443,6 +518,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
         onTapDown: (d) {
           if (drawMode) {
             _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          } else if (trendMode) {
+            _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           } else {
             _pick(d.localPosition, cons.maxWidth);
           }
@@ -458,6 +535,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               livePrice: widget.livePrice,
               selected: selected,
               hLines: hLines,
+              trendLines: trendLines,
+              pendingTrend: pendingTrend,
               sma: smaOn ? sma(candles, 20) : null,
               sma200: sma200On ? sma(candles, 200) : null,
               smaPeriod: 20,
@@ -480,6 +559,75 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     final n = candles.length;
     final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
     setState(() => selected = i);
+  }
+
+  /// Index of a trend line within ~10px of the tap (pixel space), else -1.
+  int _trendHit(Offset pos, Size plotSize, double hi, double lo) {
+    if (trendLines.isEmpty || candles.length < 2) return -1;
+    const rightPad = 52.0;
+    final plotW = plotSize.width - rightPad;
+    final plotH = plotSize.height;
+    final n = candles.length;
+    double yOf(double v) => plotH * (1 - (v - lo) / (hi - lo));
+    double idxAt(DateTime t) {
+      final t0 = candles.first.time.millisecondsSinceEpoch;
+      final tN = candles.last.time.millisecondsSinceEpoch;
+      if (tN == t0) return 0;
+      return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
+    }
+
+    final stepI = plotW / n;
+    for (int k = 0; k < trendLines.length; k++) {
+      final l = trendLines[k];
+      final x1 = stepI * (idxAt(l.t1) + 0.5);
+      final x2 = stepI * (idxAt(l.t2) + 0.5);
+      if ((x2 - x1).abs() < 1e-6) continue;
+      final y1 = yOf(l.p1), y2 = yOf(l.p2);
+      final m = (y2 - y1) / (x2 - x1);
+      final yAtTap = y1 + m * (pos.dx - x1);
+      if ((yAtTap - pos.dy).abs() < 10) return k;
+    }
+    return -1;
+  }
+
+  /// Trend mode: first tap anchors one end (candle time + price), second
+  /// tap completes the line. Anchored by time so it tracks the market.
+  void _trendAt(Offset pos, Size size) {
+    if (candles.isEmpty) return;
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
+    final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
+    final plotW = size.width - rightPad;
+    final plotH = size.height - bottomPad - rsiH - macdH;
+    if (pos.dy < 0 || pos.dy > plotH || pos.dx < 0 || pos.dx > plotW) return;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
+    hi += pad;
+    lo -= pad;
+    final price = lo + (1 - pos.dy / plotH) * (hi - lo);
+    final n = candles.length;
+    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    final t = candles[i].time;
+    setState(() {
+      final p = pendingTrend;
+      if (p == null) {
+        pendingTrend = TrendLine(t, price, t, price);
+      } else {
+        if (t == p.t1) return; // same candle - ignore
+        trendLines.add(TrendLine(p.t1, p.p1, t, price));
+        pendingTrend = null;
+        _saveTrends();
+      }
+    });
   }
 
   /// Draw mode: convert the tap's y position to a price and add a
@@ -535,12 +683,16 @@ class CandlePainter extends CustomPainter {
   final List<double>? macdSignal;
   final List<double>? macdHist;
   final List<DrawnLine> hLines;
+  final List<TrendLine> trendLines;
+  final TrendLine? pendingTrend;
 
   CandlePainter(
       {required this.candles,
       this.livePrice,
       this.selected,
       this.hLines = const [],
+      this.trendLines = const [],
+      this.pendingTrend,
       this.sma,
       this.smaPeriod = 20,
       this.sma200,
@@ -717,6 +869,54 @@ class CandlePainter extends CustomPainter {
           Offset(plotW - tp.width - 2, yy - tp.height - 1));
     }
 
+    // trend lines (anchored by candle time, extended to the plot edges)
+    if (n >= 2 && (trendLines.isNotEmpty || pendingTrend != null)) {
+      final tlPaint = Paint()
+        ..color = const Color(0xFF6FD3E0)
+        ..strokeWidth = 1.2;
+      double idxAt(DateTime t) {
+        final t0 = candles.first.time.millisecondsSinceEpoch;
+        final tN = candles.last.time.millisecondsSinceEpoch;
+        if (tN == t0) return 0;
+        return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
+      }
+
+      final stepT = plotW / n;
+      void drawTrend(TrendLine l, bool dashed) {
+        final x1 = stepT * (idxAt(l.t1) + 0.5);
+        final x2 = stepT * (idxAt(l.t2) + 0.5);
+        if ((x2 - x1).abs() < 1e-6) return;
+        final y1 = y(l.p1), y2 = y(l.p2);
+        final m = (y2 - y1) / (x2 - x1);
+        final ya = y1 - m * x1; // y at x=0
+        final yb = y1 + m * (plotW - x1); // y at x=plotW
+        if (dashed) {
+          double dx = 0;
+          const dw = 6.0, gw = 4.0;
+          final total = plotW;
+          while (dx < total) {
+            final xStart = dx;
+            final xEnd = math.min(dx + dw, total);
+            canvas.drawLine(Offset(xStart, ya + m * xStart),
+                Offset(xEnd, ya + m * xEnd), tlPaint);
+            dx += dw + gw;
+          }
+        } else {
+          canvas.drawLine(Offset(0, ya), Offset(plotW, yb), tlPaint);
+        }
+      }
+
+      for (final l in trendLines) {
+        drawTrend(l, false);
+      }
+      if (pendingTrend != null) {
+        final p = pendingTrend!;
+        final x = stepT * (idxAt(p.t1) + 0.5);
+        final py = y(p.p1);
+        canvas.drawCircle(Offset(x, py), 3, tlPaint);
+      }
+    }
+
     // RSI sub-pane
     if (rsiH > 0 && rsi != null) {
       final top = plotH + 8;
@@ -851,5 +1051,7 @@ class CandlePainter extends CustomPainter {
       old.sma != sma ||
       old.ema != ema ||
       old.rsi != rsi ||
-      old.hLines != hLines;
+      old.hLines != hLines ||
+      old.trendLines != trendLines ||
+      old.pendingTrend != pendingTrend;
 }

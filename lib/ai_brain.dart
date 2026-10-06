@@ -18,8 +18,8 @@ class AiConfig {
   /// never hard-coded. Empty means auto-trade cannot run - say so.
   static const groqApiKey = String.fromEnvironment('GROQ_API_KEY');
   static const model =
-      String.fromEnvironment('GROQ_MODEL', defaultValue: 'llama-3.3-70b-versatile');
-  static const fallbackModel = 'llama-3.1-8b-instant';
+      String.fromEnvironment('GROQ_MODEL', defaultValue: 'openai/gpt-oss-120b');
+  static const fallbackModel = 'openai/gpt-oss-20b';
 }
 
 /// Everything the model sees: real market data + account context.
@@ -255,7 +255,10 @@ class GroqBrain {
                   {'role': 'user', 'content': userPrompt},
                 ],
                 'temperature': 0.2,
-                'max_tokens': 300,
+                'max_tokens': 1500,
+                // gpt-oss is a reasoning model: keep the reasoning cheap so
+                // the answer itself always fits in the token budget.
+                'reasoning_effort': 'low',
               }))
           .timeout(const Duration(seconds: 30));
       if (r.statusCode != 200) return null;

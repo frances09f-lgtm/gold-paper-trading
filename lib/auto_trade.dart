@@ -6,6 +6,7 @@ library;
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'usage_reporter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ai_brain.dart';
@@ -390,6 +391,7 @@ class AutoTrade {
       // paper_state returns full history; only an OPEN position can be ours.
       final open = positions.where((p) => p['status'] == 'open').toList();
       if (open.isEmpty) return null;
+      UsageReporter.report('trade_opened', {'src': 'auto'});
       // Newest open position = ours (we only open when none exist).
       return '${open.last['id']}';
     } catch (_) {

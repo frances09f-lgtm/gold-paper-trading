@@ -8,6 +8,7 @@
 /// last-seen open positions and untriggered price alerts stored in
 /// SharedPreferences, then posts system notifications.
 import 'dart:convert';
+import 'usage_reporter.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
@@ -177,6 +178,7 @@ Future<Map<String, dynamic>?> _closePosition(
                 {'p': pin, 'tid': tid, 'price': price, 'why': why}))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode >= 400) return null;
+    UsageReporter.report('trade_closed', {'src': 'auto'});
     final j = jsonDecode(r.body);
     return j is Map<String, dynamic> ? j : const {};
   } catch (_) {

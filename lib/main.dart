@@ -18,6 +18,7 @@ import 'sessions.dart';
 import 'slippage.dart';
 import 'watch_service.dart';
 import 'notifications.dart';
+import 'usage_reporter.dart';
 
 const String sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
 const String sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
@@ -198,6 +199,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    UsageReporter.report('app_start');
     prefs = await SharedPreferences.getInstance();
     pin = prefs?.getString('tj_pin') ?? '';
     final raw = prefs?.getString('tj_paper_limits');
@@ -570,6 +572,7 @@ class AppState extends ChangeNotifier {
     try {
       await rpc('paper_open',
           {'p': pin, 'd': dir, 'price': px, 'q': qty, 'target': tp, 'stop': sl});
+      UsageReporter.report('trade_opened', {'src': 'manual'});
       await paperRefresh();
       return null;
     } on RpcException catch (e) {
@@ -592,6 +595,7 @@ class AppState extends ChangeNotifier {
     try {
       final r = await rpc('paper_close',
           {'p': pin, 'tid': t['id'], 'price': px, 'why': reason ?? 'Manual close'});
+      UsageReporter.report('trade_closed', {'src': 'manual'});
       closing.remove(id);
       // Dedupe with the background worker: it must not re-notify this close.
       if (prefs != null) await notifiedAdd(prefs!, 'close:$id');

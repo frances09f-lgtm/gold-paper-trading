@@ -9,6 +9,7 @@ library;
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'usage_reporter.dart';
 
 import 'chart/indicators.dart';
 import 'market_data/models.dart';
@@ -261,12 +262,14 @@ class GroqBrain {
                 'reasoning_effort': 'low',
               }))
           .timeout(const Duration(seconds: 30));
+      UsageReporter.report('ai_request', {'model': model, 'ok': r.statusCode == 200});
       if (r.statusCode != 200) return null;
       final j = jsonDecode(r.body);
       final choices = j['choices'] as List?;
       if (choices == null || choices.isEmpty) return null;
       return (choices.first as Map)['message']?['content']?.toString();
     } catch (_) {
+      UsageReporter.report('ai_request', {'model': model, 'ok': false});
       return null;
     }
   }

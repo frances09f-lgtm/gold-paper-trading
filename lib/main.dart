@@ -1233,8 +1233,82 @@ class PositionsTab extends StatefulWidget {
 
 class _PositionsTabState extends State<PositionsTab> {
   bool showHistory = false;
+  // History filters (spec 26): time, result, direction.
+  String _timeFilter = 'all';
+  String _resultFilter = 'all';
+  String _dirFilter = 'all';
 
   AppState get app => widget.app;
+
+  List<Map<String, dynamic>> _filteredHist(List<Map<String, dynamic>> hist) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
+    final monthStart = DateTime(now.year, now.month);
+    return hist.where((t) {
+      if (_timeFilter != 'all') {
+        final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')?.toLocal();
+        if (d == null) return false;
+        switch (_timeFilter) {
+          case 'today':
+            if (d.isBefore(todayStart)) return false;
+            break;
+          case 'yesterday':
+            final y = todayStart.subtract(const Duration(days: 1));
+            if (d.isBefore(y) || !d.isBefore(todayStart)) return false;
+            break;
+          case 'week':
+            if (d.isBefore(weekStart)) return false;
+            break;
+          case 'month':
+            if (d.isBefore(monthStart)) return false;
+            break;
+        }
+      }
+      if (_resultFilter != 'all') {
+        final pnl = (t['pnl'] as num?)?.toDouble();
+        if (pnl == null) return false;
+        if (_resultFilter == 'win' && pnl <= 0) return false;
+        if (_resultFilter == 'loss' && pnl >= 0) return false;
+      }
+      if (_dirFilter != 'all' && t['direction'] != _dirFilter) return false;
+      return true;
+    }).toList();
+  }
+
+  Widget _fchip(String label, String value, String group) {
+    final on = group == 'time'
+        ? _timeFilter == value
+        : group == 'result'
+            ? _resultFilter == value
+            : _dirFilter == value;
+    return GestureDetector(
+      onTap: () => setState(() {
+        if (group == 'time') {
+          _timeFilter = value;
+        } else if (group == 'result') {
+          _resultFilter = value;
+        } else {
+          _dirFilter = value;
+        }
+      }),
+      child: Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFFF5C242) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: on ? const Color(0xFFF5C242) : const Color(0xFF2A3140)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: on ? Colors.black : cDim,
+                fontSize: 11,
+                fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1255,8 +1329,31 @@ class _PositionsTabState extends State<PositionsTab> {
                     'History', showHistory, () => setState(() => showHistory = true))),
           ]),
         ),
+        if (showHistory)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+            child: Column(children: [
+              Row(children: [
+                _fchip('All', 'all', 'time'),
+                _fchip('Today', 'today', 'time'),
+                _fchip('Yesterday', 'yesterday', 'time'),
+                _fchip('Week', 'week', 'time'),
+                _fchip('Month', 'month', 'time'),
+              ]),
+              const SizedBox(height: 4),
+              Row(children: [
+                _fchip('All', 'all', 'result'),
+                _fchip('Winning', 'win', 'result'),
+                _fchip('Losing', 'loss', 'result'),
+                const SizedBox(width: 10),
+                _fchip('All', 'all', 'dir'),
+                _fchip('Buy', 'buy', 'dir'),
+                _fchip('Sell', 'sell', 'dir'),
+              ]),
+            ]),
+          ),
         Expanded(
-          child: showHistory ? _historyList(hist) : _openList(open),
+          child: showHistory ? _historyList(_filteredHist(hist)) : _openList(open),
         ),
       ],
     );
@@ -1562,7 +1659,7 @@ class _PositionsTabState extends State<PositionsTab> {
   Widget _historyList(List<Map<String, dynamic>> hist) {
     if (hist.isEmpty) {
       return const Center(
-          child: Text('No closed trades yet', style: TextStyle(color: cDim)));
+          child: Text('No closed trades match', style: TextStyle(color: cDim)));
     }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),

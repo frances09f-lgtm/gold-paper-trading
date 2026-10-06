@@ -24,6 +24,35 @@ const String _sbKey =
 
 final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
 
+/// Shared "already notified" store (tj_notified): one JSON map of
+/// eventKey -> ISO time, written by the app AND the background worker so a
+/// close/alert is never notified twice. Pruned to 7 days.
+bool notifiedHas(SharedPreferences prefs, String key) {
+  try {
+    final raw = prefs.getString('tj_notified');
+    if (raw == null) return false;
+    return (jsonDecode(raw) as Map).containsKey(key);
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> notifiedAdd(SharedPreferences prefs, String key) async {
+  try {
+    final raw = prefs.getString('tj_notified');
+    final map = <String, dynamic>{
+      if (raw != null) ...Map<String, dynamic>.from(jsonDecode(raw) as Map)
+    };
+    map[key] = DateTime.now().toIso8601String();
+    final cutoff = DateTime.now().subtract(const Duration(days: 7));
+    map.removeWhere((_, v) {
+      final t = DateTime.tryParse(v?.toString() ?? '');
+      return t == null || t.isBefore(cutoff);
+    });
+    await prefs.setString('tj_notified', jsonEncode(map));
+  } catch (_) {}
+}
+
 Future<void> _initPlugin() async {
   const init = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'));
@@ -170,6 +199,15 @@ Future<void> _bgCheck() async {
   final pin = prefs.getString('tj_pin') ?? '';
   if (pin.isEmpty) return; // not unlocked on this device
 
+  // Catch-up detection: if the last real check was long ago (worker was
+  // killed/asleep), detected events may be ancient - post ONE summary
+  // instead of a burst of stale notifications.
+  final lastRunRaw = prefs.getString('tj_bg_last_run');
+  final lastRun = lastRunRaw == null ? null : DateTime.tryParse(lastRunRaw);
+  final catchUp = lastRun == null ||
+      DateTime.now().difference(lastRun) > const Duration(minutes: 45);
+  final pending = <(String, int, String, String)>[]; // (dedupeKey, id, title, body)
+
   final quote = await _fetchQuote();
   var positions = await _fetchPositions(pin);
   final closedIds = <String>{};
@@ -215,14 +253,18 @@ Future<void> _bgCheck() async {
       final res = await _closePosition(pin, p['id'], mark, why);
       if (res == null) continue; // failed - retry next cycle, no notification
       closedIds.add(p['id'].toString());
+      final closeKey = 'close:${p['id']}';
+      if (notifiedHas(prefs, closeKey)) continue; // app already told him
       final pnl = (res['pnl'] as num?)?.toDouble();
       final pnlTxt = pnl != null
           ? ' · P/L ${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)}'
           : '';
-      await _notify(
-          nid++,
-          '$label',
-          '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt');
+      pending.add((
+        closeKey,
+        nid++,
+        '$label',
+        '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt'
+      ));
     }
     if (closedIds.isNotEmpty) {
       positions = await _fetchPositions(pin);
@@ -257,8 +299,10 @@ Future<void> _bgCheck() async {
             why = 'stop loss hit at $sl';
           }
         }
-        await _notify(nid++, 'Oro: position closed',
-            '$dir XAU/USD ${_qty(p)} - $why');
+        final closeKey = 'close:$id';
+        if (notifiedHas(prefs, closeKey)) continue; // app already told him
+        pending.add((closeKey, nid++, 'Oro: position closed',
+            '$dir XAU/USD ${_qty(p)} - $why'));
       }
     } catch (_) {}
   }
@@ -294,14 +338,43 @@ Future<void> _bgCheck() async {
           a['triggered'] = true;
           a['triggeredAt'] = DateTime.now().toIso8601String();
           changed = true;
-          await _notify(nid++, 'Oro: price alert',
-              'XAU/USD ${above ? "rose above" : "fell below"} $level (now ${price.toStringAsFixed(2)})');
+          final alertKey = 'alert:${a['id'] ?? '$level:$above'}';
+          if (notifiedHas(prefs, alertKey)) continue; // app already told him
+          pending.add((alertKey, nid++, 'Oro: price alert',
+              'XAU/USD ${above ? "rose above" : "fell below"} $level (now ${price.toStringAsFixed(2)})'));
         }
         if (changed) {
           await prefs.setString('tj_price_alerts', jsonEncode(alerts));
         }
       } catch (_) {}
     }
+  }
+
+  // Flush queued notifications: individually when the last check was
+  // recent; as ONE summary when this run is a catch-up after the worker
+  // was killed/asleep (no stale-notification bursts). Every event is still
+  // marked notified so nothing repeats.
+  if (pending.isNotEmpty) {
+    if (catchUp && pending.length > 1) {
+      final closes = pending.where((e) => e.$1.startsWith('close:')).length;
+      final alertsN = pending.length - closes;
+      final parts = <String>[
+        if (closes > 0) '$closes position${closes == 1 ? '' : 's'} closed',
+        if (alertsN > 0) '$alertsN price alert${alertsN == 1 ? '' : 's'}',
+      ];
+      await _notify(900, 'Oro: while you were away',
+          '${parts.join(' · ')} - tap to view');
+    } else {
+      for (final e in pending) {
+        await _notify(e.$2, e.$3, e.$4);
+      }
+    }
+    for (final e in pending) {
+      await notifiedAdd(prefs, e.$1);
+    }
+  }
+  if (quote != null) {
+    await prefs.setString('tj_bg_last_run', DateTime.now().toIso8601String());
   }
 }
 

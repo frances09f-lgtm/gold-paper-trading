@@ -149,10 +149,17 @@ class AppState extends ChangeNotifier {
 
   Timer? _alertBannerTimer;
 
-  void _checkAlerts() {
+  Future<void> _checkAlerts() async {
     if (price == null || !priceOk) return;
     for (final a in alerts) {
       if (a.check(price!)) {
+        // Worker may have already notified this alert while the app was
+        // dead - sync silently instead of double-notifying.
+        if (prefs != null && notifiedHas(prefs!, 'alert:${a.id}')) {
+          _saveAlerts();
+          continue;
+        }
+        if (prefs != null) await notifiedAdd(prefs!, 'alert:${a.id}');
         alertBanner = a;
         _saveAlerts();
         // User request: a triggered banner auto-dismisses after 30s; the
@@ -561,6 +568,8 @@ class AppState extends ChangeNotifier {
       final r = await rpc('paper_close',
           {'p': pin, 'tid': t['id'], 'price': px, 'why': reason ?? 'Manual close'});
       closing.remove(id);
+      // Dedupe with the background worker: it must not re-notify this close.
+      if (prefs != null) await notifiedAdd(prefs!, 'close:$id');
       await paperRefresh();
       final pnl = (r is Map && r['pnl'] != null) ? (r['pnl'] as num).toDouble() : null;
       // Auto TP/SL closes happen silently otherwise: no banner, and

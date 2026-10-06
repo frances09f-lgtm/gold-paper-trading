@@ -534,7 +534,7 @@ class GoldApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Gold Paper Trading',
+      title: 'Oro',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: const Root(),
@@ -581,7 +581,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
         if (!app.unlocked) return LockScreen(app: app);
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Gold Paper Trading',
+            title: const Text('Oro',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             actions: [
               TextButton(
@@ -648,7 +648,7 @@ class _LockScreenState extends State<LockScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Gold Paper Trading',
+              const Text('Oro',
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('Enter your PIN', style: TextStyle(color: cDim)),

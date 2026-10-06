@@ -198,6 +198,11 @@ class AutoTrade {
     final balance = (state['balance'] as num).toDouble();
     final positions =
         List<Map<String, dynamic>>.from(state['positions'] as List? ?? []);
+    // paper_state returns the FULL trade history, not just open trades.
+    // Everything below must reason over the open ones only, or any closed
+    // trade in history reads as "a position is already open" forever.
+    final openPositions =
+        positions.where((p) => p['status'] == 'open').toList();
 
     // Day-start balance for the drawdown rail.
     if (prefs.getString(_dayBalKey) == null) {
@@ -210,7 +215,8 @@ class AutoTrade {
     // Detect a close of OUR auto trade since the last tick: update the
     // loss streak + start the cooldown.
     final openId = prefs.getString(_openIdKey);
-    if (openId != null && !positions.any((p) => '${p['id']}' == openId)) {
+    if (openId != null &&
+        !openPositions.any((p) => '${p['id']}' == openId)) {
       final entryEquity = prefs.getDouble(_openEquityKey) ?? balance;
       final losses = (prefs.getInt(_lossesKey) ?? 0);
       if (balance < entryEquity - 0.005) {
@@ -240,7 +246,7 @@ class AutoTrade {
       await _pause(prefs, 'Daily drawdown limit (-2%) hit');
       return 'Paused: daily drawdown limit';
     }
-    if (positions.isNotEmpty) {
+    if (openPositions.isNotEmpty) {
       // One position at a time for the AI: never stack.
       if (openId == null) {
         await AiLog.add('decision',
@@ -370,9 +376,11 @@ class AutoTrade {
       final (state, _) = await _paperState(pin);
       final positions =
           List<Map<String, dynamic>>.from(state?['positions'] as List? ?? []);
-      if (positions.isEmpty) return null;
+      // paper_state returns full history; only an OPEN position can be ours.
+      final open = positions.where((p) => p['status'] == 'open').toList();
+      if (open.isEmpty) return null;
       // Newest open position = ours (we only open when none exist).
-      return '${positions.last['id']}';
+      return '${open.last['id']}';
     } catch (_) {
       return null;
     }

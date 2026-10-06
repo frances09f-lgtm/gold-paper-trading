@@ -542,7 +542,7 @@ class AppState extends ChangeNotifier {
         final q = (t['qty'] as num?)?.toDouble();
         final pnlTxt = pnl != null ? ' · P/L ${money(pnl, sign: true)}' : '';
         showForegroundNotification(
-          'Oro: ${reason == 'TP hit' ? 'take profit' : 'stop loss'}',
+          reason == 'TP hit' ? 'Take Profit' : 'Stop Loss Hit',
           '$dirLabel XAU/USD x${q?.toStringAsFixed(2) ?? '?'} closed at ${px.toStringAsFixed(2)}$pnlTxt',
         );
       }

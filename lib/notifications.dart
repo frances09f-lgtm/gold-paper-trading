@@ -202,10 +202,10 @@ Future<void> _bgCheck() async {
       String? label;
       if (tp != null && ((buy && mark >= tp) || (!buy && mark <= tp))) {
         why = 'take profit hit at $tp';
-        label = 'take profit';
+        label = 'Take Profit';
       } else if (sl != null && ((buy && mark <= sl) || (!buy && mark >= sl))) {
         why = 'stop loss hit at $sl';
-        label = 'stop loss';
+        label = 'Stop Loss Hit';
       }
       if (why == null) continue;
       final res = await _closePosition(pin, p['id'], mark, why);
@@ -217,7 +217,7 @@ Future<void> _bgCheck() async {
           : '';
       await _notify(
           nid++,
-          'Oro: $label',
+          '$label',
           '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt');
     }
     if (closedIds.isNotEmpty) {

@@ -121,3 +121,57 @@ class SessionsStrip extends StatelessWidget {
     );
   }
 }
+
+/// Spot gold's real closures: a daily settlement break 21:00-22:00 UTC on
+/// weekdays, and the weekend from Friday 21:00 UTC to Sunday 21:00 UTC.
+/// Feeds keep serving the last pre-close tick during these windows, so a
+/// stale quote inside one of them means "market closed", not "feed dead".
+bool metalsMarketClosed(DateTime utc) {
+  if (utc.weekday == DateTime.saturday) return true;
+  if (utc.weekday == DateTime.sunday && utc.hour < 21) return true;
+  if (utc.weekday == DateTime.friday && utc.hour >= 21) return true;
+  // Weekday daily settlement break (Sunday 21:00 is the weekly OPEN).
+  return utc.weekday != DateTime.saturday &&
+      utc.weekday != DateTime.sunday &&
+      utc.hour == 21;
+}
+
+bool _isWeekendClose(DateTime utc) =>
+    utc.weekday == DateTime.saturday ||
+    utc.weekday == DateTime.sunday ||
+    (utc.weekday == DateTime.friday && utc.hour >= 21);
+
+/// The UTC instant the market reopens after the current closure.
+DateTime metalsReopensAt(DateTime utc) {
+  if (_isWeekendClose(utc)) {
+    var d = DateTime.utc(utc.year, utc.month, utc.day, 21);
+    while (d.isBefore(utc) || d.weekday != DateTime.sunday) {
+      d = d.add(const Duration(days: 1));
+    }
+    return d;
+  }
+  return DateTime.utc(utc.year, utc.month, utc.day, 22);
+}
+
+String fmtLocalShort(DateTime utcInstant) {
+  final l = utcInstant.toLocal();
+  final h12 = l.hour % 12 == 0 ? 12 : l.hour % 12;
+  final ampm = l.hour < 12 ? 'AM' : 'PM';
+  final mm = l.minute.toString().padLeft(2, '0');
+  final today = DateTime.now();
+  final sameDay =
+      l.year == today.year && l.month == today.month && l.day == today.day;
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  final prefix = sameDay ? '' : '${days[l.weekday - 1]} ';
+  return '$prefix$h12:$mm $ampm';
+}
+
+/// Human explanation when the metals market is closed, else null.
+String? marketClosedMessage([DateTime? now]) {
+  final utc = (now ?? DateTime.now()).toUtc();
+  if (!metalsMarketClosed(utc)) return null;
+  final re = fmtLocalShort(metalsReopensAt(utc));
+  return _isWeekendClose(utc)
+      ? 'Market closed for the weekend - reopens $re'
+      : 'Market on its daily 1-hour break - reopens $re';
+}

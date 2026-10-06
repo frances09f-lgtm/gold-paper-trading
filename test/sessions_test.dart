@@ -21,6 +21,28 @@ void main() {
     expect(nextSession(sat), ('Sydney', 21));
   });
 
+  test('daily settlement break 21:00-22:00 UTC on weekdays', () {
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 7, 21, 18)), true);
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 7, 20, 59)), false);
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 7, 22, 0)), false);
+    final msg = marketClosedMessage(DateTime.utc(2026, 10, 7, 21, 30));
+    expect(msg, contains('daily 1-hour break'));
+    expect(marketClosedMessage(DateTime.utc(2026, 10, 7, 12, 0)), isNull);
+  });
+
+  test('weekend close Friday 21:00 UTC to Sunday 21:00 UTC', () {
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 9, 21, 0)), true); // Fri
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 10, 12, 0)), true); // Sat
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 11, 20, 0)), true); // Sun
+    expect(metalsMarketClosed(DateTime.utc(2026, 10, 11, 21, 0)), false);
+    final msg = marketClosedMessage(DateTime.utc(2026, 10, 10, 12, 0));
+    expect(msg, contains('weekend'));
+    expect(metalsReopensAt(DateTime.utc(2026, 10, 9, 21, 30)),
+        DateTime.utc(2026, 10, 11, 21, 0));
+    expect(metalsReopensAt(DateTime.utc(2026, 10, 11, 12, 0)),
+        DateTime.utc(2026, 10, 11, 21, 0));
+  });
+
   test('next session skips open ones', () {
     final t = DateTime.utc(2026, 10, 7, 10, 0); // London open, NY closed
     expect(nextSession(t), ('New York', 13));

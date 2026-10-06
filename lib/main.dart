@@ -557,7 +557,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> openPaper(String dir, double qty, double? tp, double? sl) async {
-    if (!priceFresh) return 'No fresh live price - cannot open right now.';
+    if (!priceFresh) {
+      return marketClosedMessage() ??
+          'No fresh live price - cannot open right now.';
+    }
     final warn = limitWarning();
     if (warn != null && blockOnLimit) {
       return '$warn - new trades blocked (Daily limits)';
@@ -579,7 +582,9 @@ class AppState extends ChangeNotifier {
   Future<String?> closePaper(Map<String, dynamic> t, {String? reason}) async {
     final id = t['id'].toString();
     if (closing.contains(id)) return null;
-    if (!priceFresh) return 'No fresh live price - try Refresh';
+    if (!priceFresh) {
+      return marketClosedMessage() ?? 'No fresh live price - try Refresh';
+    }
     final px = exitSidePrice(t['direction'] == 'buy' ? 'buy' : 'sell');
     if (px == null) return 'No fresh live price - try Refresh';
     closing.add(id);
@@ -989,7 +994,9 @@ class _TradeTabState extends State<TradeTab> {
             left: 10,
             child: IgnorePointer(
               child: Text(
-                app.priceOk ? '\$${fmt(app.price)}' : '--',
+                app.priceOk
+                    ? '\$${fmt(app.price)}${app.priceFresh ? '' : (marketClosedMessage() != null ? ' - market closed' : ' - stale')}'
+                    : '--',
                 style: TextStyle(
                     color: app.priceFresh ? Colors.white70 : cDim,
                     fontSize: 12,

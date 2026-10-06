@@ -13,6 +13,7 @@ import 'market_data/market_data_config.dart';
 import 'market_data/models.dart';
 import 'market_data/twelve_data_candles.dart';
 import 'notifications.dart';
+import 'sessions.dart';
 
 class AiLogEntry {
   final DateTime at;
@@ -176,6 +177,11 @@ class AutoTrade {
     // --- gather real data ---
     final quote = await _fetchQuote();
     if (quote == null) {
+      final closed = marketClosedMessage();
+      if (closed != null) {
+        await AiLog.add('decision', 'Skipped: $closed');
+        return 'Skipped: $closed';
+      }
       await AiLog.add('error', 'No live quote - skipped this cycle');
       return 'No live quote - skipped';
     }
@@ -321,6 +327,11 @@ class AutoTrade {
       final prices =
           (list.first as Map)['spreadProfilePrices'] as List? ?? const [];
       if (prices.isEmpty) return null;
+      final ts = ((list.first as Map)['ts'] as num?)?.toInt();
+      if (ts != null &&
+          DateTime.now().millisecondsSinceEpoch - ts > 5 * 60 * 1000) {
+        return null; // stale tick: market break or a frozen feed
+      }
       final p = prices.first as Map;
       final bid = (p['bid'] as num?)?.toDouble();
       final ask = (p['ask'] as num?)?.toDouble();

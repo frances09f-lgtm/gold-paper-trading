@@ -11,6 +11,7 @@ import 'market_data/swissquote_provider.dart';
 import 'chart/candle_chart.dart';
 import 'analytics.dart';
 import 'alerts.dart';
+import 'watch_service.dart';
 import 'news.dart';
 import 'notifications.dart';
 
@@ -465,6 +466,11 @@ class AppState extends ChangeNotifier {
                     'sl': p['sl'],
                   })
               .toList()));
+      // v15 "always watching" (spec 35): native foreground service keeps the
+      // process alive while positions are open so the background TP/SL and
+      // price-alert checks survive OEM task-killers. Checking itself stays
+      // in the existing worker; this only shows the persistent notification.
+      WatchService.sync(positions.where((p) => p['status'] == 'open').length);
     } on RpcException catch (e) {
       if (e.badPin) lock();
     } catch (_) {}

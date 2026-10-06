@@ -1441,6 +1441,7 @@ class PositionsTab extends StatefulWidget {
 
 class _PositionsTabState extends State<PositionsTab> {
   bool showHistory = false;
+  final Set<String> _histExpanded = {};
   // History filters (spec 26): time, result, direction.
   String _timeFilter = 'all';
   String _resultFilter = 'all';
@@ -1916,25 +1917,45 @@ class _PositionsTabState extends State<PositionsTab> {
         final buy = t['direction'] == 'buy';
         final pnl = t['pnl'] == null ? null : (t['pnl'] as num).toDouble();
         final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')?.toLocal();
+        final tid = t['id'].toString();
+        final isExp = _histExpanded.contains(tid);
+        // User request: collapsed dropdown rows - one summary line each,
+        // tap the chevron to open the full details.
         return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Row(children: [
+          InkWell(
+            onTap: () => setState(() =>
+                isExp ? _histExpanded.remove(tid) : _histExpanded.add(tid)),
+            child: Row(children: [
               _pill(buy ? 'BUY' : 'SELL', buy),
               const SizedBox(width: 8),
               Text('${fmt((t['qty'] as num).toDouble())} oz',
                   style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  d == null
+                      ? ''
+                      : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
+                  style: const TextStyle(color: cDim, fontSize: 12),
+                ),
+              ),
+              Text(money(pnl, sign: true),
+                  style:
+                      TextStyle(color: cls(pnl), fontWeight: FontWeight.w700)),
+              Icon(isExp ? Icons.expand_less : Icons.expand_more, color: cDim),
             ]),
-            Text(money(pnl, sign: true),
-                style: TextStyle(color: cls(pnl), fontWeight: FontWeight.w700)),
-          ]),
-          const SizedBox(height: 6),
-          Text(
-            'Entry ${fmt((t['entry'] as num).toDouble())} → Exit ${t['exit'] == null ? '-' : fmt((t['exit'] as num).toDouble())}'
-            '${t['reason'] != null && t['reason'].toString().isNotEmpty ? ' · ${t['reason']}' : ''}\n'
-            '${d == null ? '' : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'}',
-            style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
           ),
-          Builder(builder: (ctx2) {
+          if (isExp) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Entry ${fmt((t['entry'] as num).toDouble())} → Exit ${t['exit'] == null ? '-' : fmt((t['exit'] as num).toDouble())}'
+              '${t['reason'] != null && t['reason'].toString().isNotEmpty ? ' · ${t['reason']}' : ''}\n'
+              '${d == null ? '' : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'}',
+              style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
+            ),
+          ],
+          if (isExp)
+            Builder(builder: (ctx2) {
             final note = app.tradeNotes[t['id'].toString()] ?? '';
             return GestureDetector(
               onTap: () => _editNote(ctx2, t, note),

@@ -300,8 +300,9 @@ class AutoTrade {
   // --- network helpers (mirrors of notifications.dart workers) ---
 
   static const _sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
-  static const _sbKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jYWlhbGtteGhidGFybWhvaWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1OTQ3MjAsImV4cCI6MjA3NTE3MDcyMH0.KO2mHinEOaGKVBznLRRc8oRZEB-R-oR0SqkHJtK1Ci4';
+  // Same publishable anon key the rest of the app uses - the legacy JWT
+  // anon key was rotated out at Supabase and 401s.
+  static const _sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
 
   static Future<(double, double)?> _fetchQuote() async {
     try {

@@ -15,7 +15,6 @@ import 'notification_log.dart';
 import 'sessions.dart';
 import 'slippage.dart';
 import 'watch_service.dart';
-import 'news.dart';
 import 'notifications.dart';
 
 const String sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
@@ -814,7 +813,6 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               PositionsTab(app: app),
               AddTab(app: app),
               StatsTab(app: app),
-              NewsTab(),
             ],
           ),
           bottomNavigationBar: NavigationBar(
@@ -840,8 +838,6 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               const NavigationDestination(icon: Icon(Icons.add), label: 'Add'),
               const NavigationDestination(
                   icon: Icon(Icons.bar_chart), label: 'Stats'),
-              const NavigationDestination(
-                  icon: Icon(Icons.newspaper), label: 'News'),
             ],
           ),
         );
@@ -2642,131 +2638,3 @@ class EquityPainter extends CustomPainter {
   bool shouldRepaint(EquityPainter old) => true;
 }
 
-
-/// Economic calendar tab (spec 34): real scheduled USD events from the
-/// FairEconomy/ForexFactory weekly feed. On any fetch failure shows the
-/// honest "News data unavailable" state - events are never fabricated.
-class NewsTab extends StatefulWidget {
-  const NewsTab({super.key});
-  @override
-  State<NewsTab> createState() => _NewsTabState();
-}
-
-class _NewsTabState extends State<NewsTab> {
-  List<EconEvent>? events;
-  String? error;
-
-  String _month(int m) => const [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][m - 1];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final e = await fetchUsdCalendar();
-      if (mounted) {
-        setState(() {
-          events = e;
-          error = null;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => error = 'News data unavailable');
-      }
-    }
-  }
-
-  Color _impactColor(String impact) {
-    switch (impact) {
-      case 'High':
-        return cRed;
-      case 'Medium':
-        return Colors.amber;
-      default:
-        return cDim;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (error != null) {
-      return Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(error!, style: const TextStyle(color: cDim)),
-        const SizedBox(height: 8),
-        TextButton(onPressed: _load, child: const Text('Retry')),
-      ]));
-    }
-    final ev = events;
-    if (ev == null) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFF5C242)));
-    }
-    if (ev.isEmpty) {
-      return const Center(
-          child: Text('No USD events scheduled this week',
-              style: TextStyle(color: cDim)));
-    }
-    final now = DateTime.now();
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(14),
-        itemCount: ev.length,
-        itemBuilder: (ctx, i) {
-          final e = ev[i];
-          final past = e.time.isBefore(now);
-          final d = e.time;
-          const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final when =
-              '${days[d.weekday - 1]} ${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-          return card(Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: _impactColor(e.impact).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                      border:
-                          Border.all(color: _impactColor(e.impact), width: 0.5),
-                    ),
-                    child: Text(e.impact.toUpperCase(),
-                        style: TextStyle(
-                            color: _impactColor(e.impact),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(e.title,
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: past ? cDim : Colors.white))),
-                ]),
-                const SizedBox(height: 4),
-                Text(
-                    when +
-                        (e.forecast.isNotEmpty
-                            ? '  ·  F: ${e.forecast}'
-                            : '') +
-                        (e.previous.isNotEmpty
-                            ? '  ·  P: ${e.previous}'
-                            : ''),
-                    style: const TextStyle(color: cDim, fontSize: 11)),
-              ]));
-        },
-      ),
-    );
-  }
-}

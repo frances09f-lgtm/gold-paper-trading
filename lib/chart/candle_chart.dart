@@ -77,6 +77,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   final List<DrawnLine> hLines = []; // user-drawn named price levels
   final List<TrendLine> trendLines = []; // user-drawn trend lines
   TrendLine? pendingTrend; // first anchor set, waiting for the second tap
+  bool fibMode = false;
+  final List<TrendLine> fibs = []; // fibonacci retracements (2 anchors each)
+  TrendLine? pendingFib;
 
   @override
   void initState() {
@@ -110,7 +113,34 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                 DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
                 (e['p2'] as num).toDouble())));
         }
+        final rawF = prefs.getString('tj_draw_fibs');
+        if (rawF != null) {
+          final list = jsonDecode(rawF) as List;
+          fibs
+            ..clear()
+            ..addAll(list.map((e) => TrendLine(
+                DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
+                (e['p1'] as num).toDouble(),
+                DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
+                (e['p2'] as num).toDouble())));
+        }
       });
+    } catch (_) {}
+  }
+
+  Future<void> _saveFibs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'tj_draw_fibs',
+          jsonEncode(fibs
+              .map((e) => {
+                    't1': e.t1.millisecondsSinceEpoch,
+                    'p1': e.p1,
+                    't2': e.t2.millisecondsSinceEpoch,
+                    'p2': e.p2,
+                  })
+              .toList()));
     } catch (_) {}
   }
 
@@ -169,7 +199,32 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     if (idx < 0) {
       // no horizontal level near - try trend lines (pixel-space distance)
       final tIdx = _trendHit(pos, Size(size.width, plotH), hi, lo);
-      if (tIdx < 0) return;
+      if (tIdx < 0) {
+        final fIdx = _fibHit(pos, Size(size.width, plotH), hi, lo);
+        if (fIdx < 0) return;
+        final delF = await showDialog<bool>(
+          context: context,
+          builder: (dCtx) => AlertDialog(
+            backgroundColor: const Color(0xFF161B24),
+            title: const Text('Fibonacci retracement',
+                style: TextStyle(fontSize: 16)),
+            content: const Text('Delete this fibonacci retracement?'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dCtx, false),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(dCtx, true),
+                  child: const Text('Delete')),
+            ],
+          ),
+        );
+        if (delF == true) {
+          setState(() => fibs.removeAt(fIdx));
+          _saveFibs();
+        }
+        return;
+      }
       final del = await showDialog<bool>(
         context: context,
         builder: (dCtx) => AlertDialog(
@@ -319,13 +374,28 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             _indChip('Draw', drawMode, const Color(0xFF5EE0A0),
                 () => setState(() {
                       drawMode = !drawMode;
-                      if (drawMode) trendMode = false;
+                      if (drawMode) {
+                        trendMode = false;
+                        fibMode = false;
+                      }
                     })),
             _indChip('Trend', trendMode, const Color(0xFF6FD3E0),
                 () => setState(() {
                       trendMode = !trendMode;
-                      if (trendMode) drawMode = false;
+                      if (trendMode) {
+                        drawMode = false;
+                        fibMode = false;
+                      }
                       pendingTrend = null;
+                    })),
+            _indChip('Fib', fibMode, const Color(0xFFFFD166),
+                () => setState(() {
+                      fibMode = !fibMode;
+                      if (fibMode) {
+                        drawMode = false;
+                        trendMode = false;
+                      }
+                      pendingFib = null;
                     })),
                 ]),
               ),
@@ -527,6 +597,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           } else if (trendMode) {
             _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          } else if (fibMode) {
+            _fibAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           } else {
             _pick(d.localPosition, cons.maxWidth);
           }
@@ -544,6 +616,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               hLines: hLines,
               trendLines: trendLines,
               pendingTrend: pendingTrend,
+              fibs: fibs,
+              pendingFib: pendingFib,
               sma: smaOn ? sma(candles, 20) : null,
               sma200: sma200On ? sma(candles, 200) : null,
               smaPeriod: 20,
@@ -637,6 +711,62 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     });
   }
 
+  /// Index of a fib whose level line passes within ~10px of the tap.
+  int _fibHit(Offset pos, Size plotSize, double hi, double lo) {
+    if (fibs.isEmpty) return -1;
+    const fibFs = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+    final plotH = plotSize.height;
+    double yOf(double v) => plotH * (1 - (v - lo) / (hi - lo));
+    for (int k = 0; k < fibs.length; k++) {
+      final f = fibs[k];
+      for (final frac in fibFs) {
+        final price = f.p2 + (f.p1 - f.p2) * frac;
+        if ((yOf(price) - pos.dy).abs() < 10) return k;
+      }
+    }
+    return -1;
+  }
+
+  /// Fib mode: first tap anchors one swing point, second tap completes the
+  /// retracement. Levels are derived from the two anchor prices only.
+  void _fibAt(Offset pos, Size size) {
+    if (candles.isEmpty) return;
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
+    final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
+    final plotW = size.width - rightPad;
+    final plotH = size.height - bottomPad - rsiH - macdH;
+    if (pos.dy < 0 || pos.dy > plotH || pos.dx < 0 || pos.dx > plotW) return;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
+    hi += pad;
+    lo -= pad;
+    final price = lo + (1 - pos.dy / plotH) * (hi - lo);
+    final n = candles.length;
+    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    final t = candles[i].time;
+    setState(() {
+      final p = pendingFib;
+      if (p == null) {
+        pendingFib = TrendLine(t, price, t, price);
+      } else {
+        if (t == p.t1) return; // same candle - ignore
+        fibs.add(TrendLine(p.t1, p.p1, t, price));
+        pendingFib = null;
+        _saveFibs();
+      }
+    });
+  }
+
   /// Draw mode: convert the tap's y position to a price and add a
   /// horizontal line; tapping near an existing line removes it.
   void _drawAt(Offset pos, Size size) {
@@ -692,6 +822,8 @@ class CandlePainter extends CustomPainter {
   final List<DrawnLine> hLines;
   final List<TrendLine> trendLines;
   final TrendLine? pendingTrend;
+  final List<TrendLine> fibs;
+  final TrendLine? pendingFib;
 
   CandlePainter(
       {required this.candles,
@@ -700,6 +832,8 @@ class CandlePainter extends CustomPainter {
       this.hLines = const [],
       this.trendLines = const [],
       this.pendingTrend,
+      this.fibs = const [],
+      this.pendingFib,
       this.sma,
       this.smaPeriod = 20,
       this.sma200,
@@ -924,6 +1058,51 @@ class CandlePainter extends CustomPainter {
       }
     }
 
+    // fibonacci retracements: horizontal levels between the two anchors,
+    // extended right from the leftmost anchor
+    if (n >= 2 && (fibs.isNotEmpty || pendingFib != null)) {
+      const fibFs = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+      final fibPaint = Paint()
+        ..color = const Color(0xCCFFD166)
+        ..strokeWidth = 1;
+      double idxAtF(DateTime t) {
+        final t0 = candles.first.time.millisecondsSinceEpoch;
+        final tN = candles.last.time.millisecondsSinceEpoch;
+        if (tN == t0) return 0;
+        return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
+      }
+
+      final stepF = plotW / n;
+      for (final f in fibs) {
+        final xStart =
+            stepF * (math.min(idxAtF(f.t1), idxAtF(f.t2)) + 0.5);
+        for (final frac in fibFs) {
+          final price = f.p2 + (f.p1 - f.p2) * frac;
+          if (price < lo || price > hi) continue;
+          final yy = y(price);
+          canvas.drawLine(Offset(xStart, yy), Offset(plotW, yy), fibPaint);
+          final pct = (frac * 100);
+          final label =
+              '${pct == pct.roundToDouble() ? pct.toInt() : pct.toStringAsFixed(1)}% ${price.toStringAsFixed(2)}';
+          final tp = TextPainter(
+              text: TextSpan(
+                  text: label,
+                  style: const TextStyle(
+                      color: Color(0xCCFFD166),
+                      fontSize: 8,
+                      fontFamily: 'Roboto')),
+              textDirection: TextDirection.ltr)
+            ..layout();
+          tp.paint(canvas, Offset(plotW - tp.width - 2, yy - tp.height - 1));
+        }
+      }
+      if (pendingFib != null) {
+        final p = pendingFib!;
+        final x = stepF * (idxAtF(p.t1) + 0.5);
+        canvas.drawCircle(Offset(x, y(p.p1)), 3, fibPaint);
+      }
+    }
+
     // RSI sub-pane
     if (rsiH > 0 && rsi != null) {
       final top = plotH + 8;
@@ -1059,6 +1238,8 @@ class CandlePainter extends CustomPainter {
       old.ema != ema ||
       old.rsi != rsi ||
       old.hLines != hLines ||
+      old.fibs != fibs ||
+      old.pendingFib != pendingFib ||
       old.trendLines != trendLines ||
       old.pendingTrend != pendingTrend;
 }

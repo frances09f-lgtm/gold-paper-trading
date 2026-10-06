@@ -301,8 +301,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                     color: Colors.white,
                     fontSize: 13,
                     fontWeight: FontWeight.w700)),
-            const Spacer(),
-            _indChip('SMA', smaOn, const Color(0xFF4EA1FF),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  _indChip('SMA', smaOn, const Color(0xFF4EA1FF),
                 () => setState(() => smaOn = !smaOn)),
             _indChip('EMA', emaOn, const Color(0xFFFF9F43),
                 () => setState(() => emaOn = !emaOn)),
@@ -323,6 +327,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                       if (trendMode) drawMode = false;
                       pendingTrend = null;
                     })),
+                ]),
+              ),
+            ),
             if (loading)
               const SizedBox(
                   width: 12,

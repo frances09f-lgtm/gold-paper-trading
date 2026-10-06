@@ -30,6 +30,8 @@ environment:
 dependencies:
   http: ^1.2.0
   shared_preferences: ^2.3.0
+  flutter_local_notifications: ^19.5.0
+  workmanager: ^0.9.0
   flutter:
     sdk: flutter
 

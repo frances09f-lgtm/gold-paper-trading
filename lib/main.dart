@@ -11,6 +11,7 @@ import 'market_data/swissquote_provider.dart';
 import 'chart/candle_chart.dart';
 import 'analytics.dart';
 import 'alerts.dart';
+import 'notifications.dart';
 
 const String sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
 const String sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
@@ -462,6 +463,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Edit the CURRENT paper balance (Oro request). Uses the additive
+  /// paper_set_balance RPC; the backend guards by PIN and range.
+  Future<String?> setBalance(double a) async {
+    try {
+      await rpc('paper_set_balance', {'p': pin, 'amount': a});
+      await paperRefresh();
+      return null;
+    } catch (_) {
+      return 'Could not update';
+    }
+  }
+
   Future<String?> setStarting(double a) async {
     try {
       await rpc('paper_balance', {'p': pin, 'amount': a});
@@ -525,7 +538,13 @@ ThemeData buildAppTheme() => ThemeData(
       ),
     );
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Local notifications + background TP/SL / alert checks (Oro request).
+  // Android WorkManager minimum cadence is ~15 min; failures degrade silently.
+  try {
+    await initNotifications();
+  } catch (_) {}
   runApp(const GoldApp());
 }
 
@@ -907,7 +926,13 @@ class _TradeTabState extends State<TradeTab> {
             ),
           ])),
         card(Column(children: [
-          _balRow('Paper balance', money(app.balance), cls(app.balance - app.starting)),
+          Row(children: [
+            Expanded(child: _balRow('Paper balance', money(app.balance), cls(app.balance - app.starting))),
+            TextButton(
+              onPressed: () => _editBalance(context),
+              child: const Text('Edit', style: TextStyle(color: cDim, fontSize: 12)),
+            ),
+          ]),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: _balRow('Starting', money(app.starting), cDim)),
@@ -1012,6 +1037,39 @@ class _TradeTabState extends State<TradeTab> {
         )),
       ],
     );
+  }
+
+  Future<void> _editBalance(BuildContext context) async {
+    final ctrl = TextEditingController(text: fmt(app.balance));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: cCard,
+        title: const Text('Set current balance (USD)'),
+        content: TextField(
+            controller: ctrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final a = double.tryParse(ctrl.text.trim());
+      if (a != null && a >= 0) {
+        final e = await app.setBalance(a);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(e ?? 'Balance updated'),
+              duration: const Duration(seconds: 2)));
+        }
+      }
+    }
   }
 
   /// Stage (d): live risk readout for the order being composed.

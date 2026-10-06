@@ -979,9 +979,11 @@ class _TradeTabState extends State<TradeTab> {
         card(Column(children: [
           Row(children: [
             Expanded(child: _balRow('Paper balance', money(app.balance), cls(app.balance - app.starting))),
-            TextButton(
+            TextButton.icon(
               onPressed: () => _editBalance(context),
-              child: const Text('Edit', style: TextStyle(color: cDim, fontSize: 12)),
+              icon: const Icon(Icons.edit, size: 14, color: Color(0xFFF5C242)),
+              label: const Text('Edit balance',
+                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
             ),
           ]),
           const SizedBox(height: 8),

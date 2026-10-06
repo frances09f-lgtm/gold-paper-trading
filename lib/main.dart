@@ -1389,7 +1389,14 @@ class _PositionsTabState extends State<PositionsTab> {
   Future<void> _askLimit(Map<String, dynamic> t, String key, String label) async {
     final buy = t['direction'] == 'buy';
     final existing = t[key];
-    final ctrl = TextEditingController(text: existing == null ? '' : fmt((existing as num).toDouble()));
+    // User request: prefill with the live price so he nudges from there
+    // (existing value wins when one is already set), and show the open
+    // price for reference instead of a useless "e.g." placeholder.
+    final start = existing != null
+        ? fmt((existing as num).toDouble())
+        : (app.price != null ? fmt(app.price!) : '');
+    final ctrl = TextEditingController(text: start);
+    final open = (t['entry'] as num?)?.toDouble();
     String? error;
     final val = await showDialog<double>(
       context: context,
@@ -1399,11 +1406,20 @@ class _PositionsTabState extends State<PositionsTab> {
           title: Text('$label price (\$ per troy ounce)',
               style: const TextStyle(fontSize: 16)),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (open != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Open: ${fmt(open)}',
+                      style: const TextStyle(color: cDim, fontSize: 12)),
+                ),
+              ),
             TextField(
                 controller: ctrl,
                 autofocus: true,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(hintText: 'e.g. 4200')),
+                decoration: const InputDecoration()),
             if (error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),

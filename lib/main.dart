@@ -137,6 +137,13 @@ class AppState extends ChangeNotifier {
       if (a.check(price!)) {
         alertBanner = a;
         _saveAlerts();
+        // Also post a real system notification: otherwise an alert that
+        // fires while the app is open is banner-only AND marked triggered,
+        // so the background worker never notifies for it either.
+        showForegroundNotification(
+          'Oro: price alert',
+          'XAU/USD ${a.above ? "rose above" : "fell below"} ${a.level} (now ${price!.toStringAsFixed(2)})',
+        );
       }
     }
     if (alertBanner != null) notifyListeners();
@@ -342,6 +349,19 @@ class AppState extends ChangeNotifier {
         'balance': balance,
         'positions': positions,
       }));
+      // Keep the background worker's position set in sync so a position
+      // closed manually in the app is not later misreported as TP/SL.
+      prefs?.setString(
+          'tj_bg_positions',
+          jsonEncode(positions
+              .map((p) => {
+                    'id': p['id'],
+                    'direction': p['direction'],
+                    'qty': p['qty'],
+                    'tp': p['tp'],
+                    'sl': p['sl'],
+                  })
+              .toList()));
     } on RpcException catch (e) {
       if (e.badPin) lock();
     } catch (_) {}

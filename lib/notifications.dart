@@ -71,6 +71,25 @@ Future<void> _notify(int id, String title, String body) async {
   );
 }
 
+bool _foregroundInitDone = false;
+
+/// Post a system notification from the RUNNING app (price alert triggered
+/// while the user is watching, TP/SL seen on refresh, ...). Without this,
+/// an alert that fires in the foreground only shows the in-app banner AND
+/// gets marked triggered, so the background worker never notifies either.
+Future<void> showForegroundNotification(String title, String body) async {
+  try {
+    if (!_foregroundInitDone) {
+      await _initPlugin();
+      _foregroundInitDone = true;
+    }
+    await _notify(DateTime.now().millisecondsSinceEpoch ~/ 1000 % 100000,
+        title, body);
+  } catch (_) {
+    // Plugin unavailable (tests, unsupported platform): banner still shows.
+  }
+}
+
 @pragma('vm:entry-point')
 void oroBgDispatcher() {
   Workmanager().executeTask((task, inputData) async {

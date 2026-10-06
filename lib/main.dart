@@ -969,58 +969,35 @@ class _TradeTabState extends State<TradeTab> {
     return double.tryParse(s.trim());
   }
 
-  String agoText() {
-    if (!app.priceOk) return 'price unavailable';
-    final ago =
-        ((DateTime.now().millisecondsSinceEpoch - app.priceAt) / 1000).round();
-    return ago < 5 ? 'updated just now' : 'updated ${ago}s ago';
-  }
-
   @override
   Widget build(BuildContext context) {
     final fresh = app.priceFresh;
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        CandleChartPanel(
-          loader: widget.candleLoaderOverride ??
-              (_candles == null
-                  ? null
-                  : (iv) => _candles.fetchCandles(Instrument.xauUsd,
-                      interval: iv, limit: 120)),
-          livePrice: app.price,
-        ),
-        const SizedBox(height: 10),
-        card(Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Gold (XAU/USD) live',
-                      style: TextStyle(color: cDim, fontSize: 12)),
-                  Text(app.priceOk ? '\$${fmt(app.price)}' : '--',
-                      style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: fresh ? Colors.white : cDim)),
-                  Text(agoText(), style: const TextStyle(color: cDim, fontSize: 11)),
-                  if (app.bid != null && app.ask != null && app.spread != null && app.spread! > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Bid ${fmt(app.bid)}  Ask ${fmt(app.ask)}  Spread ${app.spread!.toStringAsFixed(2)}',
-                        style: const TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'),
-                      ),
-                    ),
-                ],
+        Stack(children: [
+          CandleChartPanel(
+            loader: widget.candleLoaderOverride ??
+                (_candles == null
+                    ? null
+                    : (iv) => _candles.fetchCandles(Instrument.xauUsd,
+                        interval: iv, limit: 120)),
+            livePrice: app.price,
+          ),
+          Positioned(
+            top: 150,
+            left: 10,
+            child: IgnorePointer(
+              child: Text(
+                app.priceOk ? '\$${fmt(app.price)}' : '--',
+                style: TextStyle(
+                    color: app.priceFresh ? Colors.white70 : cDim,
+                    fontSize: 12,
+                    fontFamily: 'Roboto'),
               ),
             ),
-            TextButton(
-                onPressed: app.fetchPrice,
-                child: const Text('Refresh', style: TextStyle(color: cDim))),
-          ],
-        )),
+          ),
+        ]),
         const SizedBox(height: 10),
         const SessionsStrip(),
         const SizedBox(height: 10),

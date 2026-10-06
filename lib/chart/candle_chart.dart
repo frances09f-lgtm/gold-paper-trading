@@ -82,6 +82,53 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   final List<TrendLine> fibs = []; // fibonacci retracements (2 anchors each)
   TrendLine? pendingFib;
 
+  // Chart navigation (user request): pinch to zoom, horizontal drag to
+  // scroll back through candles. scrollCandles = bars scrolled back from
+  // the newest; visibleOverride = zoomed bar count (null = fit all).
+  double scrollCandles = 0;
+  int? visibleOverride;
+  double _scaleStartVC = 0;
+  double _panStartScroll = 0;
+  static const double rightPad = 52.0;
+
+  int get _vc {
+    final n = candles.length;
+    if (n == 0) return 1;
+    final v = visibleOverride ?? n;
+    if (v > n) return n;
+    return v < 15 ? (n < 15 ? n : 15) : v;
+  }
+
+  int get _fv {
+    final n = candles.length;
+    if (n == 0) return 0;
+    final maxFv = n - _vc;
+    var fv = n - _vc - scrollCandles.round();
+    if (fv < 0) fv = 0;
+    if (fv > maxFv) fv = maxFv < 0 ? 0 : maxFv;
+    return fv;
+  }
+
+  /// Price range of the VISIBLE window (+ live price) - shared by the
+  /// painter and every gesture mapper so they always agree.
+  (double, double) _visiblePriceRange() {
+    final n = candles.length;
+    double hi = -double.infinity, lo = double.infinity;
+    if (n > 0) {
+      final fv = _fv, vc = _vc;
+      for (int i = fv; i < (fv + vc < n ? fv + vc : n); i++) {
+        final c = candles[i];
+        hi = hi > c.high ? hi : c.high;
+        lo = lo < c.low ? lo : c.low;
+      }
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    return (hi, lo);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -176,21 +223,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   /// delete it (spec 9: create / edit / delete / rename).
   Future<void> _editLineAt(Offset pos, Size size) async {
     if (hLines.isEmpty || candles.isEmpty) return;
-    const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
     final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (pos.dy < 0 || pos.dy > plotH) return;
-    double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
-      hi = hi > c.high ? hi : c.high;
-      lo = lo < c.low ? lo : c.low;
-    }
-    if (widget.livePrice != null) {
-      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
-      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
-    }
+    var (hi, lo) = _visiblePriceRange();
     final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
     hi += pad;
     lo -= pad;
@@ -584,29 +622,46 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     }
     return LayoutBuilder(builder: (context, cons) {
       return GestureDetector(
-        onPanDown: (d) {
-          if (drawMode) {
-            _dragLineStart(
-                d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          } else {
-            _pick(d.localPosition, cons.maxWidth);
-          }
-        },
-        onPanUpdate: (d) {
-          if (drawMode) {
-            _dragLineUpdate(
-                d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          } else {
-            _pick(d.localPosition, cons.maxWidth);
-          }
-        },
-        onPanEnd: (_) {
-          if (drawMode) {
-            _dragLineEnd();
-          } else {
-            setState(() => selected = null);
-          }
-        },
+        // Draw mode keeps pan for drag-moving levels; outside Draw, a
+        // one-finger drag scrolls the chart and pinch zooms it.
+        onPanDown: drawMode
+            ? (d) => _dragLineStart(
+                d.localPosition, Size(cons.maxWidth, cons.maxHeight))
+            : null,
+        onPanUpdate: drawMode
+            ? (d) => _dragLineUpdate(
+                d.localPosition, Size(cons.maxWidth, cons.maxHeight))
+            : null,
+        onPanEnd: drawMode ? (_) => _dragLineEnd() : null,
+        onScaleStart: drawMode
+            ? null
+            : (d) {
+                _panStartScroll = scrollCandles;
+                _scaleStartVC = _vc.toDouble();
+              },
+        onScaleUpdate: drawMode
+            ? null
+            : (d) {
+                final n = candles.length;
+                if (n == 0) return;
+                if (d.pointerCount >= 2) {
+                  setState(() {
+                    final v = (_scaleStartVC / d.scale).round();
+                    visibleOverride = v < 15 ? 15 : (v > n ? n : v);
+                  });
+                } else {
+                  final plotW = cons.maxWidth - 52.0;
+                  final step = plotW / _vc;
+                  if (step <= 0) return;
+                  setState(() {
+                    final maxScroll =
+                        (n - _vc) > 0 ? (n - _vc).toDouble() : 0.0;
+                    scrollCandles =
+                        (_panStartScroll - d.focalPointDelta.dx / step)
+                            .clamp(0.0, maxScroll);
+                  });
+                }
+              },
         onTapDown: (d) {
           if (trendMode) {
             _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
@@ -631,6 +686,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           size: Size(cons.maxWidth, cons.maxHeight),
           painter: CandlePainter(
               candles: candles,
+              firstVisible: _fv,
+              visibleCount: _vc,
               livePrice: widget.livePrice,
               selected: selected,
               hLines: hLines,
@@ -654,18 +711,18 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   }
 
   void _pick(Offset pos, double width) {
-    const rightPad = 52.0;
     final plotW = width - rightPad;
     if (plotW <= 0 || candles.isEmpty) return;
     final n = candles.length;
-    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    var i = (_fv + (pos.dx / plotW) * _vc).floor();
+    if (i < 0) i = 0;
+    if (i > n - 1) i = n - 1;
     setState(() => selected = i);
   }
 
   /// Index of a trend line within ~10px of the tap (pixel space), else -1.
   int _trendHit(Offset pos, Size plotSize, double hi, double lo) {
     if (trendLines.isEmpty || candles.length < 2) return -1;
-    const rightPad = 52.0;
     final plotW = plotSize.width - rightPad;
     final plotH = plotSize.height;
     final n = candles.length;
@@ -677,11 +734,11 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
     }
 
-    final stepI = plotW / n;
+    final stepI = plotW / _vc;
     for (int k = 0; k < trendLines.length; k++) {
       final l = trendLines[k];
-      final x1 = stepI * (idxAt(l.t1) + 0.5);
-      final x2 = stepI * (idxAt(l.t2) + 0.5);
+      final x1 = stepI * (idxAt(l.t1) - _fv + 0.5);
+      final x2 = stepI * (idxAt(l.t2) - _fv + 0.5);
       if ((x2 - x1).abs() < 1e-6) continue;
       final y1 = yOf(l.p1), y2 = yOf(l.p2);
       final m = (y2 - y1) / (x2 - x1);
@@ -695,28 +752,21 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   /// tap completes the line. Anchored by time so it tracks the market.
   void _trendAt(Offset pos, Size size) {
     if (candles.isEmpty) return;
-    const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
     final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
     final plotW = size.width - rightPad;
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (pos.dy < 0 || pos.dy > plotH || pos.dx < 0 || pos.dx > plotW) return;
-    double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
-      hi = hi > c.high ? hi : c.high;
-      lo = lo < c.low ? lo : c.low;
-    }
-    if (widget.livePrice != null) {
-      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
-      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
-    }
+    var (hi, lo) = _visiblePriceRange();
     final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
     hi += pad;
     lo -= pad;
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     final n = candles.length;
-    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    var i = (_fv + (pos.dx / plotW) * _vc).floor();
+    if (i < 0) i = 0;
+    if (i > n - 1) i = n - 1;
     final t = candles[i].time;
     setState(() {
       final p = pendingTrend;
@@ -751,28 +801,21 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   /// retracement. Levels are derived from the two anchor prices only.
   void _fibAt(Offset pos, Size size) {
     if (candles.isEmpty) return;
-    const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
     final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
     final plotW = size.width - rightPad;
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (pos.dy < 0 || pos.dy > plotH || pos.dx < 0 || pos.dx > plotW) return;
-    double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
-      hi = hi > c.high ? hi : c.high;
-      lo = lo < c.low ? lo : c.low;
-    }
-    if (widget.livePrice != null) {
-      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
-      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
-    }
+    var (hi, lo) = _visiblePriceRange();
     final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
     hi += pad;
     lo -= pad;
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     final n = candles.length;
-    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    var i = (_fv + (pos.dx / plotW) * _vc).floor();
+    if (i < 0) i = 0;
+    if (i > n - 1) i = n - 1;
     final t = candles[i].time;
     setState(() {
       final p = pendingFib;
@@ -790,21 +833,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   /// Shared y->price mapping for draw gestures.
   double? _priceAtY(double dy, Size size) {
     if (candles.isEmpty) return null;
-    const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
     final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (dy < 0 || dy > plotH) return null;
-    double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
-      hi = hi > c.high ? hi : c.high;
-      lo = lo < c.low ? lo : c.low;
-    }
-    if (widget.livePrice != null) {
-      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
-      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
-    }
+    var (hi, lo) = _visiblePriceRange();
     final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
     hi += pad;
     lo -= pad;
@@ -845,21 +879,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   /// horizontal line; tapping near an existing line removes it.
   void _drawAt(Offset pos, Size size) {
     if (candles.isEmpty) return;
-    const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
     final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (pos.dy < 0 || pos.dy > plotH) return;
-    double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
-      hi = hi > c.high ? hi : c.high;
-      lo = lo < c.low ? lo : c.low;
-    }
-    if (widget.livePrice != null) {
-      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
-      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
-    }
+    var (hi, lo) = _visiblePriceRange();
     final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
     hi += pad;
     lo -= pad;
@@ -898,9 +923,13 @@ class CandlePainter extends CustomPainter {
   final TrendLine? pendingTrend;
   final List<TrendLine> fibs;
   final TrendLine? pendingFib;
+  final int firstVisible;
+  final int visibleCount;
 
   CandlePainter(
       {required this.candles,
+      this.firstVisible = 0,
+      this.visibleCount = 0,
       this.livePrice,
       this.selected,
       this.hLines = const [],
@@ -935,8 +964,14 @@ class CandlePainter extends CustomPainter {
     final plotH = size.height - bottomPad - rsiH - macdH;
     if (candles.isEmpty || plotW <= 0 || plotH <= 0) return;
 
+    final n0 = candles.length;
+    final vc0 = visibleCount <= 0 || visibleCount > n0 ? n0 : visibleCount;
+    var fv0 = firstVisible;
+    if (fv0 < 0) fv0 = 0;
+    if (fv0 + vc0 > n0) fv0 = n0 - vc0 < 0 ? 0 : n0 - vc0;
     double hi = -double.infinity, lo = double.infinity;
-    for (final c in candles) {
+    for (int i = fv0; i < fv0 + vc0 && i < n0; i++) {
+      final c = candles[i];
       hi = math.max(hi, c.high);
       lo = math.min(lo, c.low);
     }
@@ -980,13 +1015,14 @@ class CandlePainter extends CustomPainter {
       );
     }
     final n = eff.length;
-    final step = plotW / n;
+    final step = plotW / vc0;
     final bodyW = math.max(step * 0.65, 1.5);
-    for (int i = 0; i < n; i++) {
+    final iEnd = fv0 + vc0 < n ? fv0 + vc0 : n;
+    for (int i = fv0; i < iEnd; i++) {
       final c = eff[i];
       final up = c.close >= c.open;
       final paint = Paint()..color = up ? bull : bear;
-      final cx = step * (i + 0.5);
+      final cx = step * (i - fv0 + 0.5);
       canvas.drawLine(Offset(cx, y(c.high)), Offset(cx, y(c.low)), paint..strokeWidth = 1);
       final top = y(math.max(c.open, c.close));
       final bot = y(math.min(c.open, c.close));
@@ -996,7 +1032,7 @@ class CandlePainter extends CustomPainter {
     }
 
     // indicator overlays (aligned: value[i] pairs with candle[period-1+i])
-    final stepI = plotW / n;
+    final stepI = plotW / vc0;
     void drawLine(List<double> series, int period, Color color) {
       if (series.isEmpty) return;
       final paint = Paint()
@@ -1007,7 +1043,7 @@ class CandlePainter extends CustomPainter {
       for (int i = 0; i < series.length; i++) {
         final idx = period - 1 + i;
         if (idx >= n) break;
-        final x = stepI * (idx + 0.5);
+        final x = stepI * (idx - fv0 + 0.5);
         final yy = y(series[i]);
         if (i == 0) {
           path.moveTo(x, yy);
@@ -1025,7 +1061,7 @@ class CandlePainter extends CustomPainter {
     // crosshair
     if (selected != null && selected! < n) {
       final c = candles[selected!];
-      final cx = step * (selected! + 0.5);
+      final cx = step * (selected! - fv0 + 0.5);
       final cy = y(c.close);
       final dash = Paint()
         ..color = axis.withOpacity(0.6)
@@ -1096,10 +1132,10 @@ class CandlePainter extends CustomPainter {
         return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
       }
 
-      final stepT = plotW / n;
+      final stepT = plotW / vc0;
       void drawTrend(TrendLine l, bool dashed) {
-        final x1 = stepT * (idxAt(l.t1) + 0.5);
-        final x2 = stepT * (idxAt(l.t2) + 0.5);
+        final x1 = stepT * (idxAt(l.t1) - fv0 + 0.5);
+        final x2 = stepT * (idxAt(l.t2) - fv0 + 0.5);
         if ((x2 - x1).abs() < 1e-6) return;
         final y1 = y(l.p1), y2 = y(l.p2);
         final m = (y2 - y1) / (x2 - x1);
@@ -1126,7 +1162,7 @@ class CandlePainter extends CustomPainter {
       }
       if (pendingTrend != null) {
         final p = pendingTrend!;
-        final x = stepT * (idxAt(p.t1) + 0.5);
+        final x = stepT * (idxAt(p.t1) - fv0 + 0.5);
         final py = y(p.p1);
         canvas.drawCircle(Offset(x, py), 3, tlPaint);
       }
@@ -1146,10 +1182,10 @@ class CandlePainter extends CustomPainter {
         return (t.millisecondsSinceEpoch - t0) / (tN - t0) * (n - 1);
       }
 
-      final stepF = plotW / n;
+      final stepF = plotW / vc0;
       for (final f in fibs) {
         final xStart =
-            stepF * (math.min(idxAtF(f.t1), idxAtF(f.t2)) + 0.5);
+            stepF * (math.min(idxAtF(f.t1), idxAtF(f.t2)) - fv0 + 0.5);
         for (final frac in fibFs) {
           final price = f.p2 + (f.p1 - f.p2) * frac;
           if (price < lo || price > hi) continue;
@@ -1172,7 +1208,7 @@ class CandlePainter extends CustomPainter {
       }
       if (pendingFib != null) {
         final p = pendingFib!;
-        final x = stepF * (idxAtF(p.t1) + 0.5);
+        final x = stepF * (idxAtF(p.t1) - fv0 + 0.5);
         canvas.drawCircle(Offset(x, y(p.p1)), 3, fibPaint);
       }
     }
@@ -1195,7 +1231,7 @@ class CandlePainter extends CustomPainter {
       for (int i = 0; i < rsi!.length; i++) {
         final idx = rsiPeriod + i;
         if (idx >= n) break;
-        final x = stepI * (idx + 0.5);
+        final x = stepI * (idx - fv0 + 0.5);
         final yy = ry(rsi![i]);
         if (i == 0) {
           path.moveTo(x, yy);
@@ -1219,7 +1255,7 @@ class CandlePainter extends CustomPainter {
     // time labels
     final tf = TextStyle(color: axis, fontSize: 9, fontFamily: 'Roboto');
     for (int t = 0; t < 4; t++) {
-      final i = ((n - 1) * t / 3).round();
+      final i = fv0 + ((vc0 - 1) * t / 3).round();
       final c = candles[i];
       final sameDay = c.time.day == candles.last.time.day &&
           c.time.month == candles.last.time.month;
@@ -1229,7 +1265,7 @@ class CandlePainter extends CustomPainter {
       final tp = TextPainter(
           text: TextSpan(text: s, style: tf), textDirection: TextDirection.ltr)
         ..layout();
-      final tx = (step * (i + 0.5) - tp.width / 2).clamp(0.0, plotW - tp.width);
+      final tx = (step * (i - fv0 + 0.5) - tp.width / 2).clamp(0.0, plotW - tp.width);
       tp.paint(canvas, Offset(tx, plotH + 3));
     }
 
@@ -1255,12 +1291,12 @@ class CandlePainter extends CustomPainter {
       double my(double v) => top + h * (1 - (v - mn) / (mx - mn));
       canvas.drawLine(Offset(0, my(0)), Offset(plotW, my(0)),
           Paint()..color = const Color(0xFF232A35));
-      final stepI = plotW / n;
+      final stepI = plotW / vc0;
       if (macdHist != null) {
         for (int i = 0; i < macdHist!.length; i++) {
           final idx = 33 + i;
           if (idx >= n) break;
-          final x = stepI * (idx + 0.5);
+          final x = stepI * (idx - fv0 + 0.5);
           final v = macdHist![i];
           final y0 = my(0), y1 = my(v);
           canvas.drawRect(
@@ -1278,7 +1314,7 @@ class CandlePainter extends CustomPainter {
         for (int i = 0; i < s.length; i++) {
           final idx = off + i;
           if (idx >= n) break;
-          final x = stepI * (idx + 0.5);
+          final x = stepI * (idx - fv0 + 0.5);
           if (i == 0) {
             path.moveTo(x, my(s[i]));
           } else {

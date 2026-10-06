@@ -833,7 +833,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
                       '${app.positions.where((t) => t['status'] == 'open').length}'),
                   child: const Icon(Icons.work_outline),
                 ),
-                label: 'Positions',
+                label: 'Portfolio',
               ),
               const NavigationDestination(icon: Icon(Icons.add), label: 'Add'),
               const NavigationDestination(

@@ -12,6 +12,8 @@ import 'chart/candle_chart.dart';
 import 'analytics.dart';
 import 'alerts.dart';
 import 'notification_log.dart';
+import 'sessions.dart';
+import 'slippage.dart';
 import 'watch_service.dart';
 import 'news.dart';
 import 'notifications.dart';
@@ -78,13 +80,15 @@ class AppState extends ChangeNotifier {
   /// so it must be inside entry/exit prices and therefore inside PnL.
   /// Falls back to the single mid price when the feed has no spread.
   double? entrySidePrice(String dir) {
-    if (dir == 'buy') return ask ?? price;
-    return bid ?? price;
+    final px = dir == 'buy' ? (ask ?? price) : (bid ?? price);
+    // Spec 21: optional slippage worsens the fill, never improves it.
+    return px == null ? null : slippage.fill(px, buying: dir == 'buy');
   }
 
   double? exitSidePrice(String dir) {
-    if (dir == 'buy') return bid ?? price;
-    return ask ?? price;
+    // a buy is sold at bid, a sell is bought back at ask
+    final px = dir == 'buy' ? (bid ?? price) : (ask ?? price);
+    return px == null ? null : slippage.fill(px, buying: dir != 'buy');
   }
 
   double? get spread =>
@@ -214,6 +218,7 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
     _loadDailyLimits();
+    _loadSlippage();
     final rawAlerts = prefs?.getString('tj_price_alerts');
     if (rawAlerts != null) {
       try {
@@ -265,6 +270,20 @@ class AppState extends ChangeNotifier {
   int maxTradesDay = 0;
   double maxDailyLoss = 0;
   bool blockOnLimit = false;
+
+  Slippage slippage = const Slippage('off');
+
+  void _loadSlippage() {
+    slippage = Slippage(prefs?.getString('tj_slippage_mode') ?? 'off',
+        prefs?.getDouble('tj_slippage_custom') ?? 0);
+  }
+
+  void setSlippage(String mode, double custom) {
+    slippage = Slippage(mode, custom);
+    prefs?.setString('tj_slippage_mode', mode);
+    prefs?.setDouble('tj_slippage_custom', custom);
+    notifyListeners();
+  }
 
   void _loadDailyLimits() {
     maxTradesDay = prefs?.getInt('tj_lim_trades') ?? 0;
@@ -996,6 +1015,8 @@ class _TradeTabState extends State<TradeTab> {
           ],
         )),
         const SizedBox(height: 10),
+        const SessionsStrip(),
+        const SizedBox(height: 10),
         CandleChartPanel(
           loader: widget.candleLoaderOverride ??
               (_candles == null
@@ -1004,6 +1025,103 @@ class _TradeTabState extends State<TradeTab> {
                       interval: iv, limit: 120)),
           livePrice: app.price,
         ),
+        const SizedBox(height: 10),
+        const Text('New order',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 10),
+        card(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              Expanded(
+                child: _segBtn('Buy', cGreen, dir == 'buy', () => setState(() => dir = 'buy')),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _segBtn('Sell', cRed, dir == 'sell', () => setState(() => dir = 'sell')),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+              controller: qtyCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Size (oz of gold)'),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: tpCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Take profit (optional)'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: slCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Stop loss (optional)'),
+                ),
+              ),
+            ]),
+            _riskRow(),
+            if (err.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(err, style: const TextStyle(color: cRed, fontSize: 12)),
+              ),
+            const SizedBox(height: 12),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: dir == 'buy' ? cGreen : cRed,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14)),
+              onPressed: (!fresh || opening)
+                  ? null
+                  : () async {
+                      final q = parseNum(qtyCtrl.text);
+                      if (q == null || q <= 0) {
+                        setState(() => err = 'Enter a size in oz (like 0.5 or 1).');
+                        return;
+                      }
+                      setState(() {
+                        opening = true;
+                        err = '';
+                      });
+                      final warn = app.limitWarning();
+                      if (warn != null && !app.blockOnLimit) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('Warning: $warn'),
+                            duration: const Duration(seconds: 3)));
+                      }
+                      final r = await app.openPaper(
+                          dir, q, parseNum(tpCtrl.text), parseNum(slCtrl.text));
+                      if (!mounted) return;
+                      if (r != null) {
+                        setState(() => err = r);
+                      } else {
+                        tpCtrl.clear();
+                        slCtrl.clear();
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(
+                                '${dir.toUpperCase()} opened at ${fmt(app.price)}'),
+                            duration: const Duration(seconds: 2)));
+                      }
+                      setState(() => opening = false);
+                    },
+              child: Text(opening
+                  ? 'Opening...'
+                  : '${dir == 'buy' ? 'Buy' : 'Sell'} at live price'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'TP/SL auto-close works only while the app is open.',
+              style: TextStyle(color: cDim, fontSize: 11),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        )),
         const SizedBox(height: 10),
         card(Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1110,32 +1228,16 @@ class _TradeTabState extends State<TradeTab> {
           ])),
         card(Column(children: [
           Row(children: [
-            Expanded(child: _balRow('Paper balance', money(app.balance), cls(app.balance - app.starting))),
-            TextButton.icon(
-              onPressed: () => _editBalance(context),
-              icon: const Icon(Icons.edit, size: 14, color: Color(0xFFF5C242)),
-              label: const Text('Edit balance',
-                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
-            ),
-          ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: _balRow('Starting', money(app.starting), cDim)),
-            TextButton(
-              onPressed: () => _editStarting(context),
-              child: const Text('Edit', style: TextStyle(color: cDim, fontSize: 12)),
-            ),
-          ]),
-          const SizedBox(height: 4),
-          _balRow('Open PnL', app.priceOk ? money(app.floatPnl(), sign: true) : '-',
-              cls(app.floatPnl())),
-        ])),
-        card(Column(children: [
-          Row(children: [
             const Expanded(
                 child: Text('Daily limits',
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            TextButton.icon(
+              onPressed: () => _editSlippage(context),
+              icon: const Icon(Icons.speed, size: 14, color: cDim),
+              label: Text('Slippage: ${app.slippage.label}',
+                  style: const TextStyle(color: cDim, fontSize: 12)),
+            ),
             TextButton.icon(
               onPressed: () => _editDailyLimits(context),
               icon: const Icon(Icons.tune, size: 14, color: Color(0xFFF5C242)),
@@ -1181,104 +1283,64 @@ class _TradeTabState extends State<TradeTab> {
                 onChanged: (v) => setState(() => app.setDailyLimits(block: v))),
           ]),
         ])),
-        const Text('New order',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 10),
-        card(Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              Expanded(
-                child: _segBtn('Buy', cGreen, dir == 'buy', () => setState(() => dir = 'buy')),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _segBtn('Sell', cRed, dir == 'sell', () => setState(() => dir = 'sell')),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Size (oz of gold)'),
-            ),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: tpCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Take profit (optional)'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: slCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Stop loss (optional)'),
-                ),
-              ),
-            ]),
-            _riskRow(),
-            if (err.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(err, style: const TextStyle(color: cRed, fontSize: 12)),
-              ),
-            const SizedBox(height: 12),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: dir == 'buy' ? cGreen : cRed,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
-              onPressed: (!fresh || opening)
-                  ? null
-                  : () async {
-                      final q = parseNum(qtyCtrl.text);
-                      if (q == null || q <= 0) {
-                        setState(() => err = 'Enter a size in oz (like 0.5 or 1).');
-                        return;
-                      }
-                      setState(() {
-                        opening = true;
-                        err = '';
-                      });
-                      final warn = app.limitWarning();
-                      if (warn != null && !app.blockOnLimit) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('Warning: $warn'),
-                            duration: const Duration(seconds: 3)));
-                      }
-                      final r = await app.openPaper(
-                          dir, q, parseNum(tpCtrl.text), parseNum(slCtrl.text));
-                      if (!mounted) return;
-                      if (r != null) {
-                        setState(() => err = r);
-                      } else {
-                        tpCtrl.clear();
-                        slCtrl.clear();
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text(
-                                '${dir.toUpperCase()} opened at ${fmt(app.price)}'),
-                            duration: const Duration(seconds: 2)));
-                      }
-                      setState(() => opening = false);
-                    },
-              child: Text(opening
-                  ? 'Opening...'
-                  : '${dir == 'buy' ? 'Buy' : 'Sell'} at live price'),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'TP/SL auto-close works only while the app is open.',
-              style: TextStyle(color: cDim, fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        )),
       ],
     );
+  }
+
+  Future<void> _editSlippage(BuildContext context) async {
+    final customCtrl = TextEditingController(
+        text: app.slippage.custom > 0 ? app.slippage.custom.toString() : '');
+    String mode = app.slippage.mode;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (dCtx, setD) => AlertDialog(
+          backgroundColor: cCard,
+          title: const Text('Slippage', style: TextStyle(fontSize: 16)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(
+                'Optional paper-trading slippage. Makes your fills slightly worse, like a real broker. Applies to new fills only.',
+                style: TextStyle(color: cDim, fontSize: 12)),
+            RadioListTile<String>(
+                title: const Text('Slippage: Off', style: TextStyle(fontSize: 14)),
+                dense: true,
+                value: 'off',
+                groupValue: mode,
+                onChanged: (v) => setD(() => mode = v!)),
+            RadioListTile<String>(
+                title: const Text('Slippage: Low (\$0.05)', style: TextStyle(fontSize: 14)),
+                dense: true,
+                value: 'low',
+                groupValue: mode,
+                onChanged: (v) => setD(() => mode = v!)),
+            RadioListTile<String>(
+                title: const Text('Slippage: Custom', style: TextStyle(fontSize: 14)),
+                dense: true,
+                value: 'custom',
+                groupValue: mode,
+                onChanged: (v) => setD(() => mode = v!)),
+            if (mode == 'custom')
+              TextField(
+                  controller: customCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Slippage \$ per oz')),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dCtx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dCtx, true),
+                child: const Text('Save')),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) {
+      app.setSlippage(mode, double.tryParse(customCtrl.text.trim()) ?? 0);
+    }
   }
 
   Future<void> _editDailyLimits(BuildContext context) async {
@@ -1323,38 +1385,6 @@ class _TradeTabState extends State<TradeTab> {
     }
   }
 
-  Future<void> _editBalance(BuildContext context) async {
-    final ctrl = TextEditingController(text: fmt(app.balance));
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dCtx) => AlertDialog(
-        backgroundColor: cCard,
-        title: const Text('Set current balance (USD)'),
-        content: TextField(
-            controller: ctrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dCtx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dCtx, true),
-              child: const Text('Save')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final a = double.tryParse(ctrl.text.trim());
-      if (a != null && a >= 0) {
-        final e = await app.setBalance(a);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(e ?? 'Balance updated'),
-              duration: const Duration(seconds: 2)));
-        }
-      }
-    }
-  }
 
   /// Stage (d): live risk readout for the order being composed.
   /// Shows $ at risk from the stop distance, and a one-tap size that
@@ -1425,34 +1455,6 @@ class _TradeTabState extends State<TradeTab> {
         ),
       );
 
-  Future<void> _editStarting(BuildContext context) async {
-    final ctrl = TextEditingController(text: app.starting.toStringAsFixed(0));
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: cCard,
-        title: const Text('New starting balance (\$)'),
-        content: TextField(
-            controller: ctrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            autofocus: true),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final a = double.tryParse(ctrl.text.trim());
-      if (a != null && a >= 0) {
-        final e = await app.setStarting(a);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(e ?? 'Starting balance updated'),
-            duration: const Duration(seconds: 2)));
-      }
-    }
-  }
 }
 
 class PositionsTab extends StatefulWidget {
@@ -2348,7 +2350,29 @@ class StatsTab extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       children: [
         card(Column(children: [
-          _stat('Paper balance', money(app.balance), cls(app.balance - app.starting)),
+          Row(children: [
+            Expanded(
+                child: _stat('Paper balance', money(app.balance),
+                    cls(app.balance - app.starting))),
+            TextButton.icon(
+              onPressed: () => _editBalance(context),
+              icon: const Icon(Icons.edit, size: 14, color: Color(0xFFF5C242)),
+              label: const Text('Edit balance',
+                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
+            ),
+          ]),
+          Row(children: [
+            Expanded(child: _stat('Starting', money(app.starting), cDim)),
+            TextButton(
+              onPressed: () => _editStarting(context),
+              child: const Text('Edit',
+                  style: TextStyle(color: cDim, fontSize: 12)),
+            ),
+          ]),
+          _stat('Open PnL', app.priceOk ? money(app.floatPnl(), sign: true) : '-',
+              cls(app.floatPnl())),
+        ])),
+        card(Column(children: [
           _stat('Total PnL (closed)', done.isEmpty ? '-' : '\$${fmt(total, sign: true)}',
               done.isEmpty ? cDim : cls(total)),
           _stat('Win rate', done.isEmpty ? '-' : '${(wins / done.length * 100).round()}%',
@@ -2408,6 +2432,75 @@ class StatsTab extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _editBalance(BuildContext context) async {
+    final ctrl = TextEditingController(text: fmt(app.balance));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: cCard,
+        title: const Text('Set current balance (USD)'),
+        content: TextField(
+            controller: ctrl,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final a = double.tryParse(ctrl.text.trim());
+      if (a != null && a >= 0) {
+        final e = await app.setBalance(a);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(e ?? 'Balance updated'),
+              duration: const Duration(seconds: 2)));
+        }
+      }
+    }
+  }
+
+  Future<void> _editStarting(BuildContext context) async {
+    final ctrl = TextEditingController(text: app.starting.toStringAsFixed(0));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cCard,
+        title: const Text('New starting balance (\$)'),
+        content: TextField(
+            controller: ctrl,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final a = double.tryParse(ctrl.text.trim());
+      if (a != null && a >= 0) {
+        final e = await app.setStarting(a);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(e ?? 'Starting balance updated'),
+              duration: const Duration(seconds: 2)));
+        }
+      }
+    }
   }
 
   Widget _stat(String label, String value, Color color) => Padding(

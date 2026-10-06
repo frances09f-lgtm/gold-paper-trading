@@ -5,6 +5,7 @@ import 'package:gold_paper_trading/main.dart';
 import 'package:gold_paper_trading/market_data/models.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:gold_paper_trading/sessions.dart';
 
 Future<void> loadFonts() async {
   final roboto = FontLoader('Roboto')
@@ -88,6 +89,8 @@ void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await loadFonts();
+    // Deterministic session strip for goldens.
+    SessionsStrip.debugNow = () => DateTime.utc(2026, 10, 7, 14, 0);
   });
 
   testWidgets('trade', (t) async {

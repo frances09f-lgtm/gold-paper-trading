@@ -250,7 +250,16 @@ Future<void> _bgCheck() async {
         label = 'Stop Loss Hit';
       }
       if (why == null) continue;
-      final res = await _closePosition(pin, p['id'], mark, why);
+      // Spec 21: the same slippage setting applies to worker fills.
+      final slipMode = prefs.getString('tj_slippage_mode') ?? 'off';
+      final slipCustom = prefs.getDouble('tj_slippage_custom') ?? 0;
+      final slipAmt = slipMode == 'low'
+          ? 0.05
+          : slipMode == 'custom'
+              ? (slipCustom < 0 ? 0 : slipCustom)
+              : 0.0;
+      final fillPx = buy ? mark - slipAmt : mark + slipAmt;
+      final res = await _closePosition(pin, p['id'], fillPx, why);
       if (res == null) continue; // failed - retry next cycle, no notification
       closedIds.add(p['id'].toString());
       final closeKey = 'close:${p['id']}';

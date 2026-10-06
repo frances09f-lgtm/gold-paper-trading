@@ -231,7 +231,17 @@ class AppState extends ChangeNotifier {
       if (unlocked) fetchPrice();
     });
     _ticker = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (unlocked) notifyListeners();
+      if (!unlocked) return;
+      // User request: triggered price alerts auto-remove after 1 minute
+      // (the banner separately auto-dismisses after 30s).
+      final cutoff = DateTime.now().subtract(const Duration(minutes: 1));
+      final before = alerts.length;
+      alerts.removeWhere((a) =>
+          a.triggered &&
+          a.triggeredAt != null &&
+          a.triggeredAt!.isBefore(cutoff));
+      if (alerts.length != before) _saveAlerts();
+      notifyListeners();
     });
     if (pin.isNotEmpty) await unlock(pin);
   }

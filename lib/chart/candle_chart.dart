@@ -78,6 +78,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   final List<TrendLine> trendLines = []; // user-drawn trend lines
   TrendLine? pendingTrend; // first anchor set, waiting for the second tap
   bool fibMode = false;
+  int? _dragLineIdx; // hLine being drag-moved in Draw mode
   final List<TrendLine> fibs = []; // fibonacci retracements (2 anchors each)
   TrendLine? pendingFib;
 
@@ -584,23 +585,42 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     return LayoutBuilder(builder: (context, cons) {
       return GestureDetector(
         onPanDown: (d) {
-          if (!drawMode) _pick(d.localPosition, cons.maxWidth);
+          if (drawMode) {
+            _dragLineStart(
+                d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          } else {
+            _pick(d.localPosition, cons.maxWidth);
+          }
         },
         onPanUpdate: (d) {
-          if (!drawMode) _pick(d.localPosition, cons.maxWidth);
+          if (drawMode) {
+            _dragLineUpdate(
+                d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          } else {
+            _pick(d.localPosition, cons.maxWidth);
+          }
         },
         onPanEnd: (_) {
-          if (!drawMode) setState(() => selected = null);
+          if (drawMode) {
+            _dragLineEnd();
+          } else {
+            setState(() => selected = null);
+          }
         },
         onTapDown: (d) {
-          if (drawMode) {
-            _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          } else if (trendMode) {
+          if (trendMode) {
             _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           } else if (fibMode) {
             _fibAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           } else {
             _pick(d.localPosition, cons.maxWidth);
+          }
+        },
+        onTapUp: (d) {
+          // Draw-mode add/remove lives on tap-UP so a drag-move (pan wins
+          // the arena) never deletes the line being moved.
+          if (drawMode) {
+            _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
           }
         },
         onLongPressStart: (d) {
@@ -765,6 +785,60 @@ class CandleChartPanelState extends State<CandleChartPanel> {
         _saveFibs();
       }
     });
+  }
+
+  /// Shared y->price mapping for draw gestures.
+  double? _priceAtY(double dy, Size size) {
+    if (candles.isEmpty) return null;
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
+    final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
+    final plotH = size.height - bottomPad - rsiH - macdH;
+    if (dy < 0 || dy > plotH) return null;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
+    hi += pad;
+    lo -= pad;
+    return lo + (1 - dy / plotH) * (hi - lo);
+  }
+
+  /// Spec 9 (move): in Draw mode, dragging from an existing level moves it
+  /// to follow the finger; the new price saves when the drag ends.
+  void _dragLineStart(Offset pos, Size size) {
+    final price = _priceAtY(pos.dy, size);
+    if (price == null) return;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    final range = hi - lo;
+    final hit =
+        hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
+    setState(() => _dragLineIdx = hit >= 0 ? hit : null);
+  }
+
+  void _dragLineUpdate(Offset pos, Size size) {
+    final idx = _dragLineIdx;
+    if (idx == null) return;
+    final price = _priceAtY(pos.dy, size);
+    if (price == null) return;
+    setState(() => hLines[idx] = DrawnLine(price, hLines[idx].name));
+  }
+
+  void _dragLineEnd() {
+    if (_dragLineIdx == null) return;
+    setState(() => _dragLineIdx = null);
+    _saveLines();
   }
 
   /// Draw mode: convert the tap's y position to a price and add a

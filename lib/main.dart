@@ -38,6 +38,18 @@ String money(num? n, {bool sign = false}) {
 
 Color cls(num? n) => n == null ? cDim : (n > 0 ? cGreen : (n < 0 ? cRed : cDim));
 
+/// $ outcome if this position exits at [level]: (level - entry) * dir * qty.
+/// Used to show "+$5" at TP / "-$2" at SL (user request), live in dialogs
+/// and on open-position cards.
+double? pnlAtLevel(Map<String, dynamic> t, double? level) {
+  if (level == null) return null;
+  final entry = (t['entry'] as num?)?.toDouble();
+  final qty = (t['qty'] as num?)?.toDouble();
+  if (entry == null || qty == null) return null;
+  final dir = t['direction'] == 'buy' ? 1.0 : -1.0;
+  return (level - entry) * dir * qty;
+}
+
 class RpcException implements Exception {
   final String message;
   final bool badPin;
@@ -1486,8 +1498,12 @@ class _PositionsTabState extends State<PositionsTab> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(label, style: const TextStyle(fontSize: 14)),
-              Text(on ? fmt(v) : 'Off',
-                  style: const TextStyle(color: cDim, fontSize: 12)),
+              Text(
+                  on
+                      ? '${fmt(v)}  ${money(pnlAtLevel(t, v), sign: true)}'
+                      : 'Off',
+                  style: TextStyle(
+                      color: on ? cls(pnlAtLevel(t, v)) : cDim, fontSize: 12)),
             ]),
           ),
           Switch(
@@ -1538,8 +1554,25 @@ class _PositionsTabState extends State<PositionsTab> {
             TextField(
                 controller: ctrl,
                 autofocus: true,
+                onChanged: (_) => setD(() {}),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration()),
+            Builder(builder: (_) {
+              final v = double.tryParse(ctrl.text.trim());
+              final pnl = v == null ? null : pnlAtLevel(t, v);
+              if (pnl == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('$label: ${money(pnl, sign: true)}',
+                      style: TextStyle(
+                          color: cls(pnl),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700)),
+                ),
+              );
+            }),
             if (error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),

@@ -54,6 +54,29 @@ void main() {
     expect(find.textContaining('O '), findsOneWidget); // OHLC legend
   });
 
+  testWidgets('trend bias strip shows readout and expands to reasons',
+      (tester) async {
+    await loadFonts();
+    final data = fakeCandles(60);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0F1115),
+        body: Center(
+          child: SizedBox(
+            width: 380,
+            height: 480,
+            child: CandleChartPanel(loader: (iv) async => data),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Trend bias: '), findsOneWidget);
+    await tester.tap(find.textContaining('Trend bias: '), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Not a prediction'), findsOneWidget);
+  });
+
   testWidgets('chart with indicators renders (golden)', (tester) async {
     await loadFonts();
     final data = fakeCandles(80);

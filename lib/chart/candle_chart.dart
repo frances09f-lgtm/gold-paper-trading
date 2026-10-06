@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../analysis.dart';
 import '../market_data/models.dart';
 import 'indicators.dart';
 
@@ -45,6 +46,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   String? error;
   int? selected; // crosshair candle index
   Timer? _timer;
+  bool biasExpanded = false;
   bool smaOn = true;
   bool emaOn = true;
   bool rsiOn = false;
@@ -175,8 +177,74 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           _legend(dim),
           const SizedBox(height: 4),
           SizedBox(height: rsiOn ? 280 : 220, child: _body()),
+          if (candles.length >= 50) _biasStrip(),
         ],
       ),
+    );
+  }
+
+  /// Trend bias strip (spec: S/R + trend readout). Rule-based read of the
+  /// candles and drawn levels already on the chart - reasons listed, never
+  /// a prediction.
+  Widget _biasStrip() {
+    const green = Color(0xFF5EE0A0);
+    const red = Color(0xFFFF6B6B);
+    const dim = Color(0xFF8A93A6);
+    final r = analyzeBias(candles, hLines);
+    final color = r.bias == TrendBias.bullish
+        ? green
+        : r.bias == TrendBias.bearish
+            ? red
+            : dim;
+    final label = r.bias == TrendBias.bullish
+        ? 'Bullish'
+        : r.bias == TrendBias.bearish
+            ? 'Bearish'
+            : 'Neutral';
+    return GestureDetector(
+      onTap: () => setState(() => biasExpanded = !biasExpanded),
+      child:
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 6),
+        Row(children: [
+          Icon(Icons.circle, size: 8, color: color),
+          const SizedBox(width: 6),
+          const Text('Trend bias: ',
+              style: TextStyle(color: dim, fontSize: 11)),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+          const Spacer(),
+          Icon(biasExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 16, color: dim),
+        ]),
+        if (biasExpanded) ...[
+          const SizedBox(height: 4),
+          for (final f in r.factors)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(f.score > 0 ? '+' : (f.score < 0 ? '-' : '·'),
+                        style: TextStyle(
+                            color: f.score > 0
+                                ? green
+                                : (f.score < 0 ? red : dim),
+                            fontSize: 11)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                        child: Text(f.text,
+                            style: const TextStyle(
+                                color: Color(0xFFB9C0CE), fontSize: 11))),
+                  ]),
+            ),
+          const SizedBox(height: 4),
+          const Text('Rule-based read of the current chart. Not a prediction.',
+              style: TextStyle(
+                  color: dim, fontSize: 10, fontStyle: FontStyle.italic)),
+        ],
+      ]),
     );
   }
 

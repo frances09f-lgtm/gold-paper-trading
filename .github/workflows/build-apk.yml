@@ -2,7 +2,7 @@ name: Build APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, v2-terminal]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,7 +17,8 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      - run: flutter build apk --debug --target-platform android-arm64 -v
+      - run: flutter test
+      - run: flutter build apk --debug --target-platform android-arm64 -v --dart-define=MARKET_DATA_API_KEY=${{ secrets.MARKET_DATA_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: gold-paper-trading-debug-apk

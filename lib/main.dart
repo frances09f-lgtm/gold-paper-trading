@@ -4,6 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'market_data/market_data_config.dart';
+import 'market_data/models.dart';
+import 'market_data/twelve_data_candles.dart';
+import 'market_data/swissquote_provider.dart';
+import 'chart/candle_chart.dart';
+import 'analytics.dart';
+import 'alerts.dart';
 
 const String sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
 const String sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
@@ -44,9 +51,28 @@ class AppState extends ChangeNotifier {
   String lockError = '';
   bool unlocking = false;
 
-  double? price;
+  double? price; // mid (display / chart)
+  double? bid; // real bid, when the feed provides it
+  double? ask; // real ask, when the feed provides it
   int priceAt = 0;
   bool priceOk = false;
+
+  /// Stage (c): execution prices. Buys open at ASK and close at BID;
+  /// sells open at BID and close at ASK. Spread is a real trading cost,
+  /// so it must be inside entry/exit prices and therefore inside PnL.
+  /// Falls back to the single mid price when the feed has no spread.
+  double? entrySidePrice(String dir) {
+    if (dir == 'buy') return ask ?? price;
+    return bid ?? price;
+  }
+
+  double? exitSidePrice(String dir) {
+    if (dir == 'buy') return bid ?? price;
+    return ask ?? price;
+  }
+
+  double? get spread =>
+      (bid != null && ask != null) ? ask! - bid! : null;
   bool get priceFresh =>
       priceOk && DateTime.now().millisecondsSinceEpoch - priceAt < 5 * 60 * 1000;
 
@@ -58,6 +84,62 @@ class AppState extends ChangeNotifier {
 
   final Set<String> closing = {};
   final Set<String> expanded = {};
+
+  /// Stage (e): journal notes on paper trades. Device-local because the
+  /// backend contract has no note field for paper positions.
+  Map<String, String> tradeNotes = {};
+
+  void setTradeNote(String tradeId, String note) {
+    if (note.trim().isEmpty) {
+      tradeNotes.remove(tradeId);
+    } else {
+      tradeNotes[tradeId] = note.trim();
+    }
+    prefs?.setString('tj_trade_notes', jsonEncode(tradeNotes));
+    notifyListeners();
+  }
+
+  /// Stage (e): device-local price alerts, checked on each real quote.
+  List<PriceAlert> alerts = [];
+  PriceAlert? alertBanner; // most recent trigger, cleared on dismiss
+
+  void _saveAlerts() {
+    prefs?.setString('tj_price_alerts',
+        jsonEncode(alerts.map((a) => a.toJson()).toList()));
+  }
+
+  void addAlert(double level, bool above) {
+    alerts.add(PriceAlert(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      level: level,
+      above: above,
+      createdAt: DateTime.now(),
+    ));
+    _saveAlerts();
+    notifyListeners();
+  }
+
+  void removeAlert(String id) {
+    alerts.removeWhere((a) => a.id == id);
+    _saveAlerts();
+    notifyListeners();
+  }
+
+  void dismissAlertBanner() {
+    alertBanner = null;
+    notifyListeners();
+  }
+
+  void _checkAlerts() {
+    if (price == null || !priceOk) return;
+    for (final a in alerts) {
+      if (a.check(price!)) {
+        alertBanner = a;
+        _saveAlerts();
+      }
+    }
+    if (alertBanner != null) notifyListeners();
+  }
 
   Timer? _priceTimer;
   Timer? _ticker;
@@ -83,6 +165,31 @@ class AppState extends ChangeNotifier {
             limits[k]![k2] = v2 == null ? null : (v2 as num).toDouble();
           });
         });
+      } catch (_) {}
+    }
+    final rawNotes = prefs?.getString('tj_trade_notes');
+    if (rawNotes != null) {
+      try {
+        tradeNotes = Map<String, String>.from(jsonDecode(rawNotes) as Map);
+      } catch (_) {}
+    }
+    final rawAlerts = prefs?.getString('tj_price_alerts');
+    if (rawAlerts != null) {
+      try {
+        alerts = (jsonDecode(rawAlerts) as List)
+            .map((e) => PriceAlert.fromJson(Map<String, dynamic>.from(e)))
+            .whereType<PriceAlert>()
+            .toList();
+      } catch (_) {}
+    }
+    final cache = prefs?.getString('tj_paper_cache');
+    if (cache != null) {
+      try {
+        final m = jsonDecode(cache) as Map<String, dynamic>;
+        starting = (m['starting'] as num?)?.toDouble() ?? starting;
+        balance = (m['balance'] as num?)?.toDouble() ?? balance;
+        positions =
+            List<Map<String, dynamic>>.from(m['positions'] as List? ?? []);
       } catch (_) {}
     }
     fetchPrice();
@@ -162,6 +269,20 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> fetchPrice() async {
+    // Stage (c): primary source is the Swissquote public BBO feed with a
+    // real bid/ask spread. Mid-only feeds remain as fallback.
+    try {
+      final q = await SwissquoteQuoteProvider().fetchQuote(Instrument.xauUsd);
+      bid = q.bid;
+      ask = q.ask;
+      price = q.mid;
+      priceAt = q.ts.millisecondsSinceEpoch;
+      priceOk = true;
+      notifyListeners();
+      checkTpsl();
+      _checkAlerts();
+      return;
+    } catch (_) {}
     Future<({double p, int t})?> trySource(int which) async {
       try {
         if (which == 0) {
@@ -191,10 +312,13 @@ class AppState extends ChangeNotifier {
       final q = await trySource(w);
       if (q != null && q.p > 0) {
         price = q.p;
+        bid = q.p;
+        ask = q.p;
         priceAt = q.t;
         priceOk = true;
         notifyListeners();
         checkTpsl();
+        _checkAlerts();
         return;
       }
     }
@@ -210,6 +334,13 @@ class AppState extends ChangeNotifier {
       balance = (s['balance'] as num).toDouble();
       positions = List<Map<String, dynamic>>.from(s['positions'] as List? ?? []);
       notifyListeners();
+      // Stage (d): device-local cache so the app opens with last-known
+      // state while offline; the network refresh above always wins.
+      prefs?.setString('tj_paper_cache', jsonEncode({
+        'starting': starting,
+        'balance': balance,
+        'positions': positions,
+      }));
     } on RpcException catch (e) {
       if (e.badPin) lock();
     } catch (_) {}
@@ -230,15 +361,21 @@ class AppState extends ChangeNotifier {
     if (!priceOk || price == null) return null;
     final entry = (t['entry'] as num).toDouble();
     final qty = (t['qty'] as num).toDouble();
+    final dirStr = t['direction'] == 'buy' ? 'buy' : 'sell';
     final dir = t['direction'] == 'buy' ? 1.0 : -1.0;
-    return (price! - entry) * dir * qty;
+    final mark = exitSidePrice(dirStr); // a buy is sold at bid, a sell bought back at ask
+    if (mark == null) return null;
+    return (mark - entry) * dir * qty;
   }
 
   double? movePct(Map<String, dynamic> t) {
     if (!priceOk || price == null) return null;
     final entry = (t['entry'] as num).toDouble();
+    final dirStr = t['direction'] == 'buy' ? 'buy' : 'sell';
     final dir = t['direction'] == 'buy' ? 1.0 : -1.0;
-    return (price! - entry) / entry * 100 * dir;
+    final mark = exitSidePrice(dirStr);
+    if (mark == null) return null;
+    return (mark - entry) / entry * 100 * dir;
   }
 
   double floatPnl() {
@@ -251,9 +388,11 @@ class AppState extends ChangeNotifier {
 
   Future<String?> openPaper(String dir, double qty, double? tp, double? sl) async {
     if (!priceFresh) return 'No fresh live price - cannot open right now.';
+    final px = entrySidePrice(dir); // buy at ask, sell at bid
+    if (px == null) return 'No fresh live price - cannot open right now.';
     try {
       await rpc('paper_open',
-          {'p': pin, 'd': dir, 'price': price, 'q': qty, 'target': tp, 'stop': sl});
+          {'p': pin, 'd': dir, 'price': px, 'q': qty, 'target': tp, 'stop': sl});
       await paperRefresh();
       return null;
     } on RpcException catch (e) {
@@ -267,11 +406,13 @@ class AppState extends ChangeNotifier {
     final id = t['id'].toString();
     if (closing.contains(id)) return null;
     if (!priceFresh) return 'No fresh live price - try Refresh';
+    final px = exitSidePrice(t['direction'] == 'buy' ? 'buy' : 'sell');
+    if (px == null) return 'No fresh live price - try Refresh';
     closing.add(id);
     notifyListeners();
     try {
       final r = await rpc('paper_close',
-          {'p': pin, 'tid': t['id'], 'price': price, 'why': reason ?? 'Manual close'});
+          {'p': pin, 'tid': t['id'], 'price': px, 'why': reason ?? 'Manual close'});
       closing.remove(id);
       await paperRefresh();
       final pnl = (r is Map && r['pnl'] != null) ? (r['pnl'] as num).toDouble() : null;
@@ -289,9 +430,11 @@ class AppState extends ChangeNotifier {
       final tp = effectiveLimit(t, 'tp');
       final sl = effectiveLimit(t, 'sl');
       final buy = t['direction'] == 'buy';
-      if (tp != null && ((buy && price! >= tp) || (!buy && price! <= tp))) {
+      final mark = exitSidePrice(buy ? 'buy' : 'sell');
+      if (mark == null) continue;
+      if (tp != null && ((buy && mark >= tp) || (!buy && mark <= tp))) {
         closePaper(t, reason: 'TP hit');
-      } else if (sl != null && ((buy && price! <= sl) || (!buy && price! >= sl))) {
+      } else if (sl != null && ((buy && mark <= sl) || (!buy && mark >= sl))) {
         closePaper(t, reason: 'SL hit');
       }
     }
@@ -557,7 +700,11 @@ Widget card(Widget child, {EdgeInsets? padding}) => Container(
 
 class TradeTab extends StatefulWidget {
   final AppState app;
-  const TradeTab({super.key, required this.app});
+
+  /// Optional test hook: override the candle source (stage b chart).
+  /// When null the panel is driven by the configured Twelve Data key.
+  final CandleLoader? candleLoaderOverride;
+  const TradeTab({super.key, required this.app, this.candleLoaderOverride});
   @override
   State<TradeTab> createState() => _TradeTabState();
 }
@@ -567,10 +714,36 @@ class _TradeTabState extends State<TradeTab> {
   final qtyCtrl = TextEditingController(text: '1');
   final tpCtrl = TextEditingController();
   final slCtrl = TextEditingController();
+  final alertCtrl = TextEditingController();
+  bool alertAbove = true;
   bool opening = false;
   String err = '';
 
+  // Stage (b): real candle service. Null when no API key is configured;
+  // the chart panel then says so instead of drawing demo bars.
+  final TwelveDataCandleService? _candles = MarketDataConfig.apiKey.isEmpty
+      ? null
+      : TwelveDataCandleService(apiKey: MarketDataConfig.apiKey);
+
   AppState get app => widget.app;
+
+  @override
+  void initState() {
+    super.initState();
+    // Keep the stage (d) risk row live as the user types.
+    qtyCtrl.addListener(_refresh);
+    slCtrl.addListener(_refresh);
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
+  void dispose() {
+    qtyCtrl.dispose();
+    slCtrl.dispose();
+    tpCtrl.dispose();
+    super.dispose();
+  }
 
   double? parseNum(String s) {
     if (s.trim().isEmpty) return null;
@@ -604,6 +777,14 @@ class _TradeTabState extends State<TradeTab> {
                           fontWeight: FontWeight.bold,
                           color: fresh ? Colors.white : cDim)),
                   Text(agoText(), style: const TextStyle(color: cDim, fontSize: 11)),
+                  if (app.bid != null && app.ask != null && app.spread != null && app.spread! > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Bid ${fmt(app.bid)}  Ask ${fmt(app.ask)}  Spread ${app.spread!.toStringAsFixed(2)}',
+                        style: const TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -612,6 +793,106 @@ class _TradeTabState extends State<TradeTab> {
                 child: const Text('Refresh', style: TextStyle(color: cDim))),
           ],
         )),
+        const SizedBox(height: 10),
+        CandleChartPanel(
+          loader: widget.candleLoaderOverride ??
+              (_candles == null
+                  ? null
+                  : (iv) => _candles.fetchCandles(Instrument.xauUsd,
+                      interval: iv, limit: 120)),
+          livePrice: app.price,
+        ),
+        const SizedBox(height: 10),
+        card(Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Price alerts',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: alertCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Alert price', isDense: true),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => setState(() => alertAbove = !alertAbove),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: cBorder),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(alertAbove ? 'Above' : 'Below',
+                      style: const TextStyle(color: cDim, fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final v = double.tryParse(alertCtrl.text.trim());
+                  if (v != null && v > 0) {
+                    app.addAlert(v, alertAbove);
+                    alertCtrl.clear();
+                  }
+                },
+                child: const Text('Add'),
+              ),
+            ]),
+            if (app.alerts.isNotEmpty) const SizedBox(height: 8),
+            ...app.alerts.map((a) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(children: [
+                    Icon(
+                        a.triggered
+                            ? Icons.notifications_active
+                            : Icons.notifications_none,
+                        size: 14,
+                        color: a.triggered ? const Color(0xFFF5C242) : cDim),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${a.above ? 'Above' : 'Below'} ${fmt(a.level)}${a.triggered ? '  -  triggered' : ''}',
+                        style: TextStyle(
+                            color: a.triggered ? const Color(0xFFF5C242) : cDim,
+                            fontSize: 12),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => app.removeAlert(a.id),
+                      child: const Icon(Icons.delete_outline,
+                          size: 16, color: cDim),
+                    ),
+                  ]),
+                )),
+          ],
+        )),
+        const SizedBox(height: 10),
+        if (app.alertBanner != null)
+          card(Row(children: [
+            const Icon(Icons.notifications_active,
+                color: Color(0xFFF5C242), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Price alert: XAU/USD ${app.alertBanner!.above ? 'reached' : 'dropped to'} ${fmt(app.alertBanner!.level)}',
+                style: const TextStyle(
+                    color: Color(0xFFF5C242),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            GestureDetector(
+              onTap: app.dismissAlertBanner,
+              child: const Icon(Icons.close, color: cDim, size: 18),
+            ),
+          ])),
         if (!fresh)
           card(Row(children: [
             const Icon(Icons.warning_amber, color: Colors.amber, size: 18),
@@ -678,6 +959,7 @@ class _TradeTabState extends State<TradeTab> {
                 ),
               ),
             ]),
+            _riskRow(),
             if (err.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
@@ -729,6 +1011,50 @@ class _TradeTabState extends State<TradeTab> {
           ],
         )),
       ],
+    );
+  }
+
+  /// Stage (d): live risk readout for the order being composed.
+  /// Shows $ at risk from the stop distance, and a one-tap size that
+  /// risks 1% of the paper balance. Entry is the real side price.
+  Widget _riskRow() {
+    final entry = app.entrySidePrice(dir);
+    final qty = parseNum(qtyCtrl.text);
+    final sl = parseNum(slCtrl.text);
+    if (entry == null) return const SizedBox.shrink();
+    final risk = (qty != null && sl != null)
+        ? (entry - sl).abs() * qty
+        : null;
+    final suggested = riskQty(app.balance * 0.01, entry, sl);
+    final pct = risk != null && app.balance > 0 ? risk / app.balance * 100 : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(children: [
+        Expanded(
+          child: Text(
+            risk == null
+                ? (sl == null
+                    ? 'Add a stop loss to size by risk'
+                    : 'Enter size and stop to see risk')
+                : 'Risk ${money(risk, sign: false)} (${pct!.toStringAsFixed(1)}% of balance)',
+            style: TextStyle(
+                color: risk == null
+                    ? cDim
+                    : (pct! > 2 ? cRed : Colors.amber),
+                fontSize: 12),
+          ),
+        ),
+        if (suggested != null)
+          GestureDetector(
+            onTap: () => setState(
+                () => qtyCtrl.text = suggested.toStringAsFixed(2)),
+            child: Text('1% size: ${suggested.toStringAsFixed(2)} oz',
+                style: const TextStyle(
+                    color: Color(0xFFF5C242),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ),
+      ]),
     );
   }
 
@@ -1076,6 +1402,36 @@ class _PositionsTabState extends State<PositionsTab> {
     }
   }
 
+  /// Stage (e): journal note editor for a closed paper trade.
+  Future<void> _editNote(
+      BuildContext context, Map<String, dynamic> t, String current) async {
+    final ctrl = TextEditingController(text: current);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: cCard,
+        title: const Text('Journal note'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+              hintText: 'Why did you take this trade? What happened?'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (saved == true) {
+      app.setTradeNote(t['id'].toString(), ctrl.text);
+    }
+  }
+
   Widget _historyList(List<Map<String, dynamic>> hist) {
     if (hist.isEmpty) {
       return const Center(
@@ -1107,6 +1463,32 @@ class _PositionsTabState extends State<PositionsTab> {
             '${d == null ? '' : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'}',
             style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
           ),
+          Builder(builder: (ctx2) {
+            final note = app.tradeNotes[t['id'].toString()] ?? '';
+            return GestureDetector(
+              onTap: () => _editNote(ctx2, t, note),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(children: [
+                  const Icon(Icons.edit_note, size: 14, color: cDim),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      note.isEmpty ? 'Add a journal note' : note,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: note.isEmpty ? cDim : Colors.white70,
+                          fontSize: 11,
+                          fontStyle: note.isEmpty
+                              ? FontStyle.italic
+                              : FontStyle.normal),
+                    ),
+                  ),
+                ]),
+              ),
+            );
+          }),
         ]));
       },
     );
@@ -1472,6 +1854,18 @@ class StatsTab extends StatelessWidget {
     final done = app.allClosed().map((t) => t.pnl).toList();
     final total = done.fold<double>(0, (a, b) => a + b);
     final wins = done.where((x) => x > 0).length;
+    final pf = profitFactor(done);
+    final avgWin = avgOf(done.where((x) => x > 0));
+    final avgLoss = avgOf(done.where((x) => x < 0));
+    final mdd = maxDrawdown(app.starting, done);
+    final streak = currentStreak(done);
+    final risk = openRisk(app.positions
+        .where((t) => t['status'] == 'open')
+        .map((t) => (
+              entry: (t['entry'] as num).toDouble(),
+              qty: (t['qty'] as num).toDouble(),
+              stop: (app.effectiveLimit(t, 'sl'))?.toDouble(),
+            )));
     final count = app.trades.length +
         app.positions.where((t) => t['status'] == 'closed').length;
     return ListView(
@@ -1490,6 +1884,27 @@ class StatsTab extends StatelessWidget {
               done.isEmpty ? cDim : cls(done.reduce(math.min))),
           _stat('Avg', done.isEmpty ? '-' : '\$${fmt(total / done.length, sign: true)}',
               done.isEmpty ? cDim : cls(total)),
+          _stat('Profit factor', pf == null ? '-' : pf.toStringAsFixed(2), cDim),
+          _stat('Avg win', avgWin == null ? '-' : '\$${fmt(avgWin, sign: true)}',
+              avgWin == null ? cDim : cls(avgWin)),
+          _stat('Avg loss', avgLoss == null ? '-' : '\$${fmt(avgLoss, sign: true)}',
+              avgLoss == null ? cDim : cls(avgLoss)),
+          _stat('Max drawdown', done.isEmpty ? '-' : '-\$${fmt(mdd)}',
+              done.isEmpty ? cDim : (mdd > 0 ? cRed : cDim)),
+          _stat(
+              'Streak',
+              streak == 0
+                  ? '-'
+                  : streak > 0
+                      ? '$streak wins'
+                      : '${-streak} losses',
+              streak == 0
+                  ? cDim
+                  : streak > 0
+                      ? cGreen
+                      : cRed),
+          _stat('Open risk', risk == 0 ? '-' : '-\$${fmt(risk)}',
+              risk == 0 ? cDim : Colors.amber),
         ])),
         const Text('Equity curve',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),

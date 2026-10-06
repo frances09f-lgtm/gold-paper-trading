@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gold_paper_trading/main.dart';
+import 'package:gold_paper_trading/market_data/models.dart';
+import 'dart:async';
+import 'dart:math' as math;
 
 Future<void> loadFonts() async {
   final roboto = FontLoader('Roboto')
@@ -15,6 +18,8 @@ AppState demoState() {
   final app = AppState();
   app.unlocked = true;
   app.price = 4153.70;
+  app.bid = 4153.35;
+  app.ask = 4154.05;
   app.priceAt = DateTime.now().millisecondsSinceEpoch;
   app.priceOk = true;
   app.starting = 10;
@@ -86,12 +91,30 @@ void main() {
   });
 
   testWidgets('trade', (t) async {
-    await shoot(t, (app) => TradeTab(app: app), 'trade');
+    await shoot(t, (app) => TradeTab(app: app, candleLoaderOverride: testCandles), 'trade');
   });
   testWidgets('positions', (t) async {
     await shoot(t, (app) => PositionsTab(app: app), 'positions');
   });
   testWidgets('stats', (t) async {
     await shoot(t, (app) => StatsTab(app: app), 'stats');
+  });
+}
+
+/// Deterministic synthetic candles for GOLDEN RENDERS ONLY. The app itself
+/// never fabricates market data.
+Future<List<Candle>> testCandles(String interval) async {
+  final rnd = math.Random(42);
+  double px = 4100;
+  final base = DateTime(2026, 10, 6, 9, 0);
+  return List.generate(80, (i) {
+    final o = px;
+    final c = o + (rnd.nextDouble() - 0.48) * 8;
+    final h = math.max(o, c) + rnd.nextDouble() * 3;
+    final l = math.min(o, c) - rnd.nextDouble() * 3;
+    px = c;
+    return Candle(
+        time: base.add(Duration(minutes: 15 * i)),
+        open: o, high: h, low: l, close: c);
   });
 }

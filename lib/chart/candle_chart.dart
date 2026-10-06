@@ -1,0 +1,570 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import '../market_data/models.dart';
+import 'indicators.dart';
+
+/// Real candle chart (stage b). Renders ONLY candles that came from a
+/// historical candle service - never synthetic or placeholder bars.
+
+typedef CandleLoader = Future<List<Candle>> Function(String interval);
+
+class ChartInterval {
+  final String code; // provider interval code
+  final String label;
+  final Duration refresh;
+  const ChartInterval(this.code, this.label, this.refresh);
+}
+
+const intervals = [
+  ChartInterval('1min', '1m', Duration(seconds: 60)),
+  ChartInterval('15min', '15m', Duration(minutes: 5)),
+  ChartInterval('1h', '1H', Duration(minutes: 15)),
+  ChartInterval('4h', '4H', Duration(minutes: 30)),
+  ChartInterval('1day', '1D', Duration(hours: 1)),
+];
+
+class CandleChartPanel extends StatefulWidget {
+  /// Loads real candles; may throw. When null, no candle source is
+  /// configured and the panel says so instead of drawing fake bars.
+  final CandleLoader? loader;
+
+  /// Latest live price for the dashed last-price line (optional).
+  final double? livePrice;
+
+  const CandleChartPanel({super.key, this.loader, this.livePrice});
+
+  @override
+  State<CandleChartPanel> createState() => CandleChartPanelState();
+}
+
+class CandleChartPanelState extends State<CandleChartPanel> {
+  ChartInterval interval = intervals[1]; // 15m default
+  List<Candle> candles = [];
+  bool loading = false;
+  String? error;
+  int? selected; // crosshair candle index
+  Timer? _timer;
+  bool smaOn = true;
+  bool emaOn = true;
+  bool rsiOn = false;
+  bool drawMode = false;
+  final List<double> hLines = []; // user-drawn horizontal price lines
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _armTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _armTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(interval.refresh, (_) => _load(quiet: true));
+  }
+
+  Future<void> _load({bool quiet = false}) async {
+    final loader = widget.loader;
+    if (loader == null) return;
+    if (!quiet) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final data = await loader(interval.code);
+      if (!mounted) return;
+      setState(() {
+        candles = data;
+        loading = false;
+        error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        // Keep the last real candles on screen; flag the error.
+        error = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  void _setInterval(ChartInterval iv) {
+    if (iv.code == interval.code) return;
+    setState(() {
+      interval = iv;
+      candles = [];
+      selected = null;
+      error = null;
+    });
+    _armTimer();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bg = Color(0xFF0E1116);
+    const dim = Color(0xFF8A93A6);
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF232A35)),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('XAU/USD',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700)),
+            const Spacer(),
+            _indChip('SMA', smaOn, const Color(0xFF4EA1FF),
+                () => setState(() => smaOn = !smaOn)),
+            _indChip('EMA', emaOn, const Color(0xFFFF9F43),
+                () => setState(() => emaOn = !emaOn)),
+            _indChip('RSI', rsiOn, const Color(0xFFB78CFF),
+                () => setState(() => rsiOn = !rsiOn)),
+            _indChip('Draw', drawMode, const Color(0xFF5EE0A0),
+                () => setState(() => drawMode = !drawMode)),
+            if (loading)
+              const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFFF5C242))),
+          ]),
+          const SizedBox(height: 6),
+          Row(children: [
+            ...intervals.map((iv) {
+              final on = iv.code == interval.code;
+              return GestureDetector(
+                onTap: () => _setInterval(iv),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: on ? const Color(0xFFF5C242) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: on
+                            ? const Color(0xFFF5C242)
+                            : const Color(0xFF2A3140)),
+                  ),
+                  child: Text(iv.label,
+                      style: TextStyle(
+                          color: on ? Colors.black : const Color(0xFF8A93A6),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600)),
+                ),
+              );
+            }),
+          ]),
+          const SizedBox(height: 6),
+          _legend(dim),
+          const SizedBox(height: 4),
+          SizedBox(height: rsiOn ? 280 : 220, child: _body()),
+        ],
+      ),
+    );
+  }
+
+  Widget _indChip(String label, bool on, Color color, VoidCallback tap) =>
+      GestureDetector(
+        onTap: tap,
+        child: Container(
+          margin: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(
+            color: on ? color.withValues(alpha: 0.18) : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: on ? color : const Color(0xFF2A3140)),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: on ? color : const Color(0xFF8A93A6),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600)),
+        ),
+      );
+
+  Widget _legend(Color dim) {
+    Candle? c;
+    if (selected != null && candles.isNotEmpty) {
+      c = candles[selected!.clamp(0, candles.length - 1)];
+    } else if (candles.isNotEmpty) {
+      c = candles.last;
+    }
+    if (error != null) {
+      return Text(error!,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFFE0654F), fontSize: 11));
+    }
+    if (c == null) {
+      return Text(
+          widget.loader == null
+              ? 'Candle feed not configured (set MARKET_DATA_API_KEY)'
+              : 'Loading real candles...',
+          style: TextStyle(color: dim, fontSize: 11));
+    }
+    final up = c.close >= c.open;
+    final col = up ? const Color(0xFF2EC27E) : const Color(0xFFE0654F);
+    String f(double v) => v.toStringAsFixed(2);
+    return Text(
+      'O ${f(c.open)}  H ${f(c.high)}  L ${f(c.low)}  C ${f(c.close)}',
+      style: TextStyle(color: col, fontSize: 11, fontFamily: 'Roboto'),
+    );
+  }
+
+  Widget _body() {
+    if (widget.loader == null) {
+      return const Center(
+          child: Text('No candle source configured.\nReal data only - no demo bars.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+    }
+    if (candles.isEmpty && loading) {
+      return const Center(
+          child: Text('Fetching candles from Twelve Data...',
+              style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+    }
+    if (candles.isEmpty) {
+      // The legend above the chart already shows the error detail.
+      return const Center(
+          child: Text('No candles returned',
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+    }
+    return LayoutBuilder(builder: (context, cons) {
+      return GestureDetector(
+        onPanDown: (d) {
+          if (!drawMode) _pick(d.localPosition, cons.maxWidth);
+        },
+        onPanUpdate: (d) {
+          if (!drawMode) _pick(d.localPosition, cons.maxWidth);
+        },
+        onPanEnd: (_) {
+          if (!drawMode) setState(() => selected = null);
+        },
+        onTapDown: (d) {
+          if (drawMode) {
+            _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          } else {
+            _pick(d.localPosition, cons.maxWidth);
+          }
+        },
+        child: CustomPaint(
+          size: Size(cons.maxWidth, cons.maxHeight),
+          painter: CandlePainter(
+              candles: candles,
+              livePrice: widget.livePrice,
+              selected: selected,
+              hLines: hLines,
+              sma: smaOn ? sma(candles, 20) : null,
+              smaPeriod: 20,
+              ema: emaOn ? ema(candles, 50) : null,
+              emaPeriod: 50,
+              rsi: rsiOn ? rsi(candles, 14) : null,
+              rsiPeriod: 14),
+        ),
+      );
+    });
+  }
+
+  void _pick(Offset pos, double width) {
+    const rightPad = 52.0;
+    final plotW = width - rightPad;
+    if (plotW <= 0 || candles.isEmpty) return;
+    final n = candles.length;
+    final i = ((pos.dx / plotW) * n).floor().clamp(0, n - 1);
+    setState(() => selected = i);
+  }
+
+  /// Draw mode: convert the tap's y position to a price and add a
+  /// horizontal line; tapping near an existing line removes it.
+  void _drawAt(Offset pos, Size size) {
+    if (candles.isEmpty) return;
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
+    final plotH = size.height - bottomPad - rsiH;
+    if (pos.dy < 0 || pos.dy > plotH) return;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
+    hi += pad;
+    lo -= pad;
+    final price = lo + (1 - pos.dy / plotH) * (hi - lo);
+    // remove if tapping within 1% of range of an existing line
+    final range = hi - lo;
+    final hit = hLines.indexWhere((p) => (p - price).abs() < range * 0.02);
+    setState(() {
+      if (hit >= 0) {
+        hLines.removeAt(hit);
+      } else {
+        hLines.add(price);
+      }
+    });
+  }
+}
+
+class CandlePainter extends CustomPainter {
+  final List<Candle> candles;
+  final double? livePrice;
+  final int? selected;
+  final List<double>? sma;
+  final int smaPeriod;
+  final List<double>? ema;
+  final int emaPeriod;
+  final List<double>? rsi;
+  final int rsiPeriod;
+  final List<double> hLines;
+
+  CandlePainter(
+      {required this.candles,
+      this.livePrice,
+      this.selected,
+      this.hLines = const [],
+      this.sma,
+      this.smaPeriod = 20,
+      this.ema,
+      this.emaPeriod = 50,
+      this.rsi,
+      this.rsiPeriod = 14});
+
+  static const bull = Color(0xFF2EC27E);
+  static const bear = Color(0xFFE0654F);
+  static const grid = Color(0xFF1C2230);
+  static const axis = Color(0xFF8A93A6);
+  static const gold = Color(0xFFF5C242);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsi != null && rsi!.isNotEmpty) ? 64.0 : 0.0;
+    final plotW = size.width - rightPad;
+    final plotH = size.height - bottomPad - rsiH;
+    if (candles.isEmpty || plotW <= 0 || plotH <= 0) return;
+
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = math.max(hi, c.high);
+      lo = math.min(lo, c.low);
+    }
+    if (livePrice != null) {
+      hi = math.max(hi, livePrice!);
+      lo = math.min(lo, livePrice!);
+    }
+    final pad = math.max((hi - lo) * 0.05, 0.01);
+    hi += pad;
+    lo -= pad;
+    double y(double v) => plotH * (1 - (v - lo) / (hi - lo));
+
+    // grid + price labels
+    final gridPaint = Paint()..color = grid;
+    final labelStyle = TextStyle(
+        color: axis, fontSize: 9, fontFamily: 'Roboto', height: 1);
+    for (int g = 0; g <= 4; g++) {
+      final v = lo + (hi - lo) * g / 4;
+      final yy = y(v);
+      canvas.drawLine(Offset(0, yy), Offset(plotW, yy), gridPaint);
+      final tp = TextPainter(
+          text: TextSpan(text: v.toStringAsFixed(2), style: labelStyle),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      tp.paint(canvas, Offset(plotW + 4, (yy - tp.height / 2).clamp(0.0, size.height - tp.height)));
+    }
+
+    // candles
+    final n = candles.length;
+    final step = plotW / n;
+    final bodyW = math.max(step * 0.65, 1.5);
+    for (int i = 0; i < n; i++) {
+      final c = candles[i];
+      final up = c.close >= c.open;
+      final paint = Paint()..color = up ? bull : bear;
+      final cx = step * (i + 0.5);
+      canvas.drawLine(Offset(cx, y(c.high)), Offset(cx, y(c.low)), paint..strokeWidth = 1);
+      final top = y(math.max(c.open, c.close));
+      final bot = y(math.min(c.open, c.close));
+      canvas.drawRect(
+          Rect.fromLTRB(cx - bodyW / 2, top, cx + bodyW / 2, math.max(bot, top + 1)),
+          paint);
+    }
+
+    // indicator overlays (aligned: value[i] pairs with candle[period-1+i])
+    final stepI = plotW / n;
+    void drawLine(List<double> series, int period, Color color) {
+      if (series.isEmpty) return;
+      final paint = Paint()
+        ..color = color
+        ..strokeWidth = 1.2
+        ..style = PaintingStyle.stroke;
+      final path = Path();
+      for (int i = 0; i < series.length; i++) {
+        final idx = period - 1 + i;
+        if (idx >= n) break;
+        final x = stepI * (idx + 0.5);
+        final yy = y(series[i]);
+        if (i == 0) {
+          path.moveTo(x, yy);
+        } else {
+          path.lineTo(x, yy);
+        }
+      }
+      canvas.drawPath(path, paint);
+    }
+
+    if (sma != null) drawLine(sma!, smaPeriod, const Color(0xFF4EA1FF));
+    if (ema != null) drawLine(ema!, emaPeriod, const Color(0xFFFF9F43));
+
+    // crosshair
+    if (selected != null && selected! < n) {
+      final c = candles[selected!];
+      final cx = step * (selected! + 0.5);
+      final cy = y(c.close);
+      final dash = Paint()
+        ..color = axis.withOpacity(0.6)
+        ..strokeWidth = 0.5;
+      canvas.drawLine(Offset(cx, 0), Offset(cx, plotH), dash);
+      canvas.drawLine(Offset(0, cy), Offset(plotW, cy), dash);
+    }
+
+    // last price line + tag
+    final lp = livePrice ?? candles.last.close;
+    final lpy = y(lp);
+    final dashPaint = Paint()
+      ..color = gold
+      ..strokeWidth = 1;
+    const dashW = 5.0, gapW = 4.0;
+    double x = 0;
+    while (x < plotW) {
+      canvas.drawLine(Offset(x, lpy), Offset(math.min(x + dashW, plotW), lpy), dashPaint);
+      x += dashW + gapW;
+    }
+    final tagTp = TextPainter(
+        text: TextSpan(
+            text: lp.toStringAsFixed(2),
+            style: const TextStyle(
+                color: Colors.black,
+                fontSize: 9,
+                fontFamily: 'Roboto',
+                fontWeight: FontWeight.w700)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+    final tagY = (lpy - tagTp.height / 2).clamp(0.0, size.height - tagTp.height);
+    final rr = RRect.fromRectAndRadius(
+        Rect.fromLTWH(plotW + 2, tagY - 2, tagTp.width + 8, tagTp.height + 4),
+        const Radius.circular(3));
+    canvas.drawRRect(rr, Paint()..color = gold);
+    tagTp.paint(canvas, Offset(plotW + 6, tagY));
+
+    // user-drawn horizontal lines
+    final hlPaint = Paint()
+      ..color = const Color(0xFF5EE0A0)
+      ..strokeWidth = 1;
+    for (final p in hLines) {
+      if (p < lo || p > hi) continue;
+      final yy = y(p);
+      canvas.drawLine(Offset(0, yy), Offset(plotW, yy), hlPaint);
+      final tp = TextPainter(
+          text: TextSpan(
+              text: p.toStringAsFixed(2),
+              style: const TextStyle(
+                  color: Color(0xFF5EE0A0),
+                  fontSize: 9,
+                  fontFamily: 'Roboto')),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      tp.paint(canvas,
+          Offset(plotW - tp.width - 2, yy - tp.height - 1));
+    }
+
+    // RSI sub-pane
+    if (rsiH > 0 && rsi != null) {
+      final top = plotH + 8;
+      final h = rsiH - 8;
+      final rp = Paint()..color = grid;
+      canvas.drawRect(Rect.fromLTWH(0, top, plotW, h), rp..color = const Color(0xFF141923));
+      double ry(double v) => top + h * (1 - v / 100);
+      final band = Paint()..color = const Color(0xFF232A35);
+      canvas.drawLine(Offset(0, ry(70)), Offset(plotW, ry(70)), band);
+      canvas.drawLine(Offset(0, ry(30)), Offset(plotW, ry(30)), band);
+      final rPaint = Paint()
+        ..color = const Color(0xFFB78CFF)
+        ..strokeWidth = 1.2
+        ..style = PaintingStyle.stroke;
+      final path = Path();
+      for (int i = 0; i < rsi!.length; i++) {
+        final idx = rsiPeriod + i;
+        if (idx >= n) break;
+        final x = stepI * (idx + 0.5);
+        final yy = ry(rsi![i]);
+        if (i == 0) {
+          path.moveTo(x, yy);
+        } else {
+          path.lineTo(x, yy);
+        }
+      }
+      canvas.drawPath(path, rPaint);
+      final lbl = TextPainter(
+          text: TextSpan(
+              text: 'RSI ${rsi!.last.toStringAsFixed(1)}',
+              style: const TextStyle(
+                  color: Color(0xFFB78CFF),
+                  fontSize: 9,
+                  fontFamily: 'Roboto')),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      lbl.paint(canvas, Offset(4, top + 2));
+    }
+
+    // time labels
+    final tf = TextStyle(color: axis, fontSize: 9, fontFamily: 'Roboto');
+    for (int t = 0; t < 4; t++) {
+      final i = ((n - 1) * t / 3).round();
+      final c = candles[i];
+      final sameDay = c.time.day == candles.last.time.day &&
+          c.time.month == candles.last.time.month;
+      final s = sameDay
+          ? '${c.time.hour.toString().padLeft(2, '0')}:${c.time.minute.toString().padLeft(2, '0')}'
+          : '${c.time.month}/${c.time.day}';
+      final tp = TextPainter(
+          text: TextSpan(text: s, style: tf), textDirection: TextDirection.ltr)
+        ..layout();
+      final tx = (step * (i + 0.5) - tp.width / 2).clamp(0.0, plotW - tp.width);
+      tp.paint(canvas, Offset(tx, plotH + 3));
+    }
+  }
+
+  @override
+  bool shouldRepaint(CandlePainter old) =>
+      old.candles != candles ||
+      old.livePrice != livePrice ||
+      old.selected != selected ||
+      old.sma != sma ||
+      old.ema != ema ||
+      old.rsi != rsi ||
+      old.hLines != hLines;
+}

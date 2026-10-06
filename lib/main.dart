@@ -201,7 +201,10 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
     fetchPrice();
-    _priceTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    // Live chart (user request): poll the free Swissquote BBO feed every
+    // 3s so the forming candle and last-price line feel real-time. The 1m
+    // candle HISTORY refresh stays at 15s to respect TwelveData 8/min.
+    _priceTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (unlocked) fetchPrice();
     });
     _ticker = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -276,7 +279,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _fetching = false;
+
   Future<void> fetchPrice() async {
+    if (_fetching) return; // 3s cadence: never stack overlapping fetches
+    _fetching = true;
     // Stage (c): primary source is the Swissquote public BBO feed with a
     // real bid/ask spread. Mid-only feeds remain as fallback.
     try {
@@ -289,6 +296,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       checkTpsl();
       _checkAlerts();
+      _fetching = false;
       return;
     } catch (_) {}
     Future<({double p, int t})?> trySource(int which) async {
@@ -327,11 +335,13 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         checkTpsl();
         _checkAlerts();
+        _fetching = false;
         return;
       }
     }
     priceOk = false;
     notifyListeners();
+    _fetching = false;
   }
 
   Future<void> paperRefresh() async {

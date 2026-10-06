@@ -202,6 +202,7 @@ class AppState extends ChangeNotifier {
         tradeNotes = Map<String, String>.from(jsonDecode(rawNotes) as Map);
       } catch (_) {}
     }
+    _loadDailyLimits();
     final rawAlerts = prefs?.getString('tj_price_alerts');
     if (rawAlerts != null) {
       try {
@@ -236,6 +237,66 @@ class AppState extends ChangeNotifier {
 
   void _saveLimits() {
     prefs?.setString('tj_paper_limits', jsonEncode(limits));
+  }
+
+  // --- Daily trading limits (spec 31). Device-local; 0/empty = off. ---
+  int maxTradesDay = 0;
+  double maxDailyLoss = 0;
+  bool blockOnLimit = false;
+
+  void _loadDailyLimits() {
+    maxTradesDay = prefs?.getInt('tj_lim_trades') ?? 0;
+    maxDailyLoss = prefs?.getDouble('tj_lim_loss') ?? 0;
+    blockOnLimit = prefs?.getBool('tj_lim_block') ?? false;
+  }
+
+  void setDailyLimits({int? trades, double? loss, bool? block}) {
+    if (trades != null) {
+      maxTradesDay = trades;
+      prefs?.setInt('tj_lim_trades', trades);
+    }
+    if (loss != null) {
+      maxDailyLoss = loss;
+      prefs?.setDouble('tj_lim_loss', loss);
+    }
+    if (block != null) {
+      blockOnLimit = block;
+      prefs?.setBool('tj_lim_block', block);
+    }
+    notifyListeners();
+  }
+
+  int tradesToday() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    return positions.where((p) {
+      final d = DateTime.tryParse(p['opened_at']?.toString() ?? '')?.toLocal();
+      return d != null && !d.isBefore(start);
+    }).length;
+  }
+
+  double realizedToday() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    var sum = 0.0;
+    for (final p in positions) {
+      if (p['status'] != 'closed') continue;
+      final d = DateTime.tryParse(p['closed_at']?.toString() ?? '')?.toLocal();
+      if (d == null || d.isBefore(start)) continue;
+      sum += (p['pnl'] as num?)?.toDouble() ?? 0;
+    }
+    return sum;
+  }
+
+  /// Null when inside limits; otherwise why a new trade should warn/block.
+  String? limitWarning() {
+    if (maxTradesDay > 0 && tradesToday() >= maxTradesDay) {
+      return 'Max trades/day reached ($maxTradesDay)';
+    }
+    if (maxDailyLoss > 0 && realizedToday() <= -maxDailyLoss) {
+      return 'Daily loss limit hit (today: ${money(realizedToday(), sign: true)})';
+    }
+    return null;
   }
 
   void setLimit(String tid, String key, double? value) {
@@ -440,6 +501,10 @@ class AppState extends ChangeNotifier {
 
   Future<String?> openPaper(String dir, double qty, double? tp, double? sl) async {
     if (!priceFresh) return 'No fresh live price - cannot open right now.';
+    final warn = limitWarning();
+    if (warn != null && blockOnLimit) {
+      return '$warn - new trades blocked (Daily limits)';
+    }
     final px = entrySidePrice(dir); // buy at ask, sell at bid
     if (px == null) return 'No fresh live price - cannot open right now.';
     try {
@@ -1010,6 +1075,57 @@ class _TradeTabState extends State<TradeTab> {
           _balRow('Open PnL', app.priceOk ? money(app.floatPnl(), sign: true) : '-',
               cls(app.floatPnl())),
         ])),
+        card(Column(children: [
+          Row(children: [
+            const Expanded(
+                child: Text('Daily limits',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            TextButton.icon(
+              onPressed: () => _editDailyLimits(context),
+              icon: const Icon(Icons.tune, size: 14, color: Color(0xFFF5C242)),
+              label: const Text('Set',
+                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
+            ),
+          ]),
+          Row(children: [
+            Expanded(
+                child: _balRow(
+                    'Trades today',
+                    '${app.tradesToday()}${app.maxTradesDay > 0 ? ' / ${app.maxTradesDay}' : ''}',
+                    cDim)),
+            Expanded(
+                child: _balRow(
+                    'P/L today',
+                    money(app.realizedToday(), sign: true) +
+                        (app.maxDailyLoss > 0
+                            ? ' / -${fmt(app.maxDailyLoss)}'
+                            : ''),
+                    cls(app.realizedToday()))),
+          ]),
+          if (app.limitWarning() != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(children: [
+                const Icon(Icons.warning_amber,
+                    color: Colors.amber, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                    child: Text(app.limitWarning()!,
+                        style: const TextStyle(
+                            color: Colors.amber, fontSize: 12))),
+              ]),
+            ),
+          Row(children: [
+            const Expanded(
+                child: Text('Block new trades at limit',
+                    style: TextStyle(fontSize: 12, color: cDim))),
+            Switch(
+                value: app.blockOnLimit,
+                activeTrackColor: cGreen,
+                onChanged: (v) => setState(() => app.setDailyLimits(block: v))),
+          ]),
+        ])),
         const Text('New order',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
@@ -1073,6 +1189,12 @@ class _TradeTabState extends State<TradeTab> {
                         opening = true;
                         err = '';
                       });
+                      final warn = app.limitWarning();
+                      if (warn != null && !app.blockOnLimit) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('Warning: $warn'),
+                            duration: const Duration(seconds: 3)));
+                      }
                       final r = await app.openPaper(
                           dir, q, parseNum(tpCtrl.text), parseNum(slCtrl.text));
                       if (!mounted) return;
@@ -1102,6 +1224,48 @@ class _TradeTabState extends State<TradeTab> {
         )),
       ],
     );
+  }
+
+  Future<void> _editDailyLimits(BuildContext context) async {
+    final tradesCtrl = TextEditingController(
+        text: app.maxTradesDay > 0 ? app.maxTradesDay.toString() : '');
+    final lossCtrl = TextEditingController(
+        text: app.maxDailyLoss > 0 ? fmt(app.maxDailyLoss) : '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: cCard,
+        title: const Text('Daily limits', style: TextStyle(fontSize: 16)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: tradesCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Max trades/day (empty = off)')),
+          const SizedBox(height: 8),
+          TextField(
+              controller: lossCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                  labelText: 'Max daily loss \$ (empty = off)')),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final t = int.tryParse(tradesCtrl.text.trim()) ?? 0;
+      final l = double.tryParse(lossCtrl.text.trim()) ?? 0;
+      setState(() =>
+          app.setDailyLimits(trades: t < 0 ? 0 : t, loss: l < 0 ? 0 : l));
+    }
   }
 
   Future<void> _editBalance(BuildContext context) async {

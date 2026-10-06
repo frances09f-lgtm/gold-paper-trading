@@ -2719,6 +2719,9 @@ class _AiTabState extends State<AiTab> {
                         : cDim,
                     fontSize: 12),
               ),
+              if (st.keyConfigured)
+                const Text('Groq key built in - nothing to enter',
+                    style: TextStyle(color: cDim, fontSize: 11)),
               if (st.pausedReason != null && st.enabled) ...[
                 const SizedBox(height: 8),
                 OutlinedButton(

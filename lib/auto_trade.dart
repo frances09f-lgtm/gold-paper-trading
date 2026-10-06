@@ -187,8 +187,14 @@ class AutoTrade {
       await AiLog.add('error', 'No candle data - skipped this cycle ($e)');
       return 'No candle data - skipped';
     }
-    final state = await _paperState(pin);
-    if (state == null) return 'Could not read paper account';
+    final (state, stateErr) = await _paperState(pin);
+    if (state == null) {
+      if (stateErr != null && stateErr.startsWith('PIN rejected')) {
+        await prefs.remove('tj_pin');
+      }
+      await AiLog.add('error', 'Paper account read failed: $stateErr');
+      return 'Could not read paper account - $stateErr';
+    }
     final balance = (state['balance'] as num).toDouble();
     final positions =
         List<Map<String, dynamic>>.from(state['positions'] as List? ?? []);
@@ -318,18 +324,27 @@ class AutoTrade {
     }
   }
 
-  static Future<Map<String, dynamic>?> _paperState(String pin) async {
+  /// Returns (state, error). error is a precise reason when state is null
+  /// so the AI tab can say WHAT failed instead of a bare "could not read".
+  static Future<(Map<String, dynamic>?, String?)> _paperState(
+      String pin) async {
     try {
       final r = await http
           .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_state'),
               headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
               body: jsonEncode({'p': pin}))
           .timeout(const Duration(seconds: 20));
-      if (r.statusCode >= 400) return null;
+      if (r.statusCode == 400 && r.body.contains('bad pin')) {
+        return (null, 'PIN rejected - unlock the app again to refresh it');
+      }
+      if (r.statusCode >= 400) {
+        return (null, 'server error ${r.statusCode}');
+      }
       final j = jsonDecode(r.body);
-      return j is Map<String, dynamic> ? j : null;
+      if (j is Map<String, dynamic>) return (j, null);
+      return (null, 'unexpected reply from server');
     } catch (_) {
-      return null;
+      return (null, 'no connection to trading server');
     }
   }
 
@@ -351,7 +366,7 @@ class AutoTrade {
               }))
           .timeout(const Duration(seconds: 20));
       if (r.statusCode >= 400) return null;
-      final state = await _paperState(pin);
+      final (state, _) = await _paperState(pin);
       final positions =
           List<Map<String, dynamic>>.from(state?['positions'] as List? ?? []);
       if (positions.isEmpty) return null;

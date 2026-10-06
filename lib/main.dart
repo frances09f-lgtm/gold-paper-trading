@@ -1492,36 +1492,42 @@ class _PositionsTabState extends State<PositionsTab> {
     }).toList();
   }
 
-  Widget _fchip(String label, String value, String group) {
-    final on = group == 'time'
-        ? _timeFilter == value
-        : group == 'result'
-            ? _resultFilter == value
-            : _dirFilter == value;
-    return GestureDetector(
-      onTap: () => setState(() {
-        if (group == 'time') {
-          _timeFilter = value;
-        } else if (group == 'result') {
-          _resultFilter = value;
-        } else {
-          _dirFilter = value;
-        }
-      }),
-      child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: on ? const Color(0xFFF5C242) : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-              color: on ? const Color(0xFFF5C242) : const Color(0xFF2A3140)),
+  Widget _fdrop(String label, String value, Map<String, String> options,
+      String group) {
+    return Expanded(
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        isDense: true,
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: cDim, fontSize: 11),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+            borderSide: const BorderSide(color: Color(0xFF2A3140)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+            borderSide: const BorderSide(color: Color(0xFFF5C242)),
+          ),
         ),
-        child: Text(label,
-            style: TextStyle(
-                color: on ? Colors.black : cDim,
-                fontSize: 11,
-                fontWeight: FontWeight.w600)),
+        dropdownColor: const Color(0xFF1A1F2B),
+        style: const TextStyle(fontSize: 12, color: Colors.white),
+        items: [
+          for (final e in options.entries)
+            DropdownMenuItem(value: e.key, child: Text(e.value)),
+        ],
+        onChanged: (v) => setState(() {
+          if (v == null) return;
+          if (group == 'time') {
+            _timeFilter = v;
+          } else if (group == 'result') {
+            _resultFilter = v;
+          } else {
+            _dirFilter = v;
+          }
+        }),
       ),
     );
   }
@@ -1550,21 +1556,25 @@ class _PositionsTabState extends State<PositionsTab> {
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
             child: Column(children: [
               Row(children: [
-                _fchip('All', 'all', 'time'),
-                _fchip('Today', 'today', 'time'),
-                _fchip('Yesterday', 'yesterday', 'time'),
-                _fchip('Week', 'week', 'time'),
-                _fchip('Month', 'month', 'time'),
-              ]),
-              const SizedBox(height: 4),
-              Row(children: [
-                _fchip('All', 'all', 'result'),
-                _fchip('Winning', 'win', 'result'),
-                _fchip('Losing', 'loss', 'result'),
-                const SizedBox(width: 10),
-                _fchip('All', 'all', 'dir'),
-                _fchip('Buy', 'buy', 'dir'),
-                _fchip('Sell', 'sell', 'dir'),
+                _fdrop('Time', _timeFilter, const {
+                  'all': 'All',
+                  'today': 'Today',
+                  'yesterday': 'Yesterday',
+                  'week': 'Week',
+                  'month': 'Month',
+                }, 'time'),
+                const SizedBox(width: 8),
+                _fdrop('Result', _resultFilter, const {
+                  'all': 'All',
+                  'win': 'Winning',
+                  'loss': 'Losing',
+                }, 'result'),
+                const SizedBox(width: 8),
+                _fdrop('Side', _dirFilter, const {
+                  'all': 'All',
+                  'buy': 'Buy',
+                  'sell': 'Sell',
+                }, 'dir'),
               ]),
             ]),
           ),

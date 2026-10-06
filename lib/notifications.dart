@@ -102,7 +102,14 @@ void oroBgDispatcher() {
   });
 }
 
-Future<double?> _fetchMid() async {
+class _Quote {
+  final double bid;
+  final double ask;
+  const _Quote(this.bid, this.ask);
+  double get mid => (bid + ask) / 2;
+}
+
+Future<_Quote?> _fetchQuote() async {
   try {
     final r = await http
         .get(Uri.parse(
@@ -117,7 +124,26 @@ Future<double?> _fetchMid() async {
     final bid = (p['bid'] as num?)?.toDouble();
     final ask = (p['ask'] as num?)?.toDouble();
     if (bid == null || ask == null || bid <= 0 || ask <= 0) return null;
-    return (bid + ask) / 2;
+    return _Quote(bid, ask);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Close one paper position server-side via the existing paper_close RPC.
+/// Returns the decoded response (may carry pnl), or null on failure.
+Future<Map<String, dynamic>?> _closePosition(
+    String pin, dynamic tid, double price, String why) async {
+  try {
+    final r = await http
+        .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_close'),
+            headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
+            body: jsonEncode(
+                {'p': pin, 'tid': tid, 'price': price, 'why': why}))
+        .timeout(const Duration(seconds: 20));
+    if (r.statusCode >= 400) return null;
+    final j = jsonDecode(r.body);
+    return j is Map<String, dynamic> ? j : const {};
   } catch (_) {
     return null;
   }
@@ -140,10 +166,67 @@ Future<void> _bgCheck() async {
   final pin = prefs.getString('tj_pin') ?? '';
   if (pin.isEmpty) return; // not unlocked on this device
 
-  final price = await _fetchMid();
-  final positions = await _fetchPositions(pin);
+  final quote = await _fetchQuote();
+  var positions = await _fetchPositions(pin);
+  final closedIds = <String>{};
 
-  // --- TP/SL (position disappeared since last check) ---
+  // --- Auto-close TP/SL (the server never closes positions by itself;
+  // the foreground app normally does, so when the app is closed this
+  // worker is the only closer). Reads tp/sl from the server position,
+  // overlaid with the device-local limits the user edited after opening
+  // (same merge as the app's effectiveLimit). Exit-side pricing: a buy
+  // is sold at bid, a sell is bought back at ask.
+  if (quote != null) {
+    Map<String, dynamic> localLimits = const {};
+    final limitsRaw = prefs.getString('tj_paper_limits');
+    if (limitsRaw != null) {
+      try {
+        localLimits = Map<String, dynamic>.from(jsonDecode(limitsRaw));
+      } catch (_) {}
+    }
+    double? effLimit(Map<String, dynamic> p, String key) {
+      final local = localLimits[p['id'].toString()];
+      if (local is Map && local.containsKey(key)) {
+        return (local[key] as num?)?.toDouble();
+      }
+      return (p[key] as num?)?.toDouble();
+    }
+
+    var nid = 50;
+    for (final p in positions) {
+      final buy = p['direction'] == 'buy';
+      final mark = buy ? quote.bid : quote.ask;
+      final tp = effLimit(p, 'tp');
+      final sl = effLimit(p, 'sl');
+      String? why;
+      String? label;
+      if (tp != null && ((buy && mark >= tp) || (!buy && mark <= tp))) {
+        why = 'take profit hit at $tp';
+        label = 'take profit';
+      } else if (sl != null && ((buy && mark <= sl) || (!buy && mark >= sl))) {
+        why = 'stop loss hit at $sl';
+        label = 'stop loss';
+      }
+      if (why == null) continue;
+      final res = await _closePosition(pin, p['id'], mark, why);
+      if (res == null) continue; // failed - retry next cycle, no notification
+      closedIds.add(p['id'].toString());
+      final pnl = (res['pnl'] as num?)?.toDouble();
+      final pnlTxt = pnl != null
+          ? ' · P/L ${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)}'
+          : '';
+      await _notify(
+          nid++,
+          'Oro: $label',
+          '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt');
+    }
+    if (closedIds.isNotEmpty) {
+      positions = await _fetchPositions(pin);
+    }
+  }
+
+  // --- TP/SL fallback (position disappeared since last check, e.g.
+  // closed from another device) ---
   final prevRaw = prefs.getString('tj_bg_positions');
   if (prevRaw != null) {
     try {
@@ -153,10 +236,12 @@ Future<void> _bgCheck() async {
       for (final p in prev) {
         final id = p['id'].toString();
         if (openIds.contains(id)) continue;
+        if (closedIds.contains(id)) continue; // already notified above
         final dir = p['direction'] == 'buy' ? 'Buy' : 'Sell';
         final tp = (p['tp'] as num?)?.toDouble();
         final sl = (p['sl'] as num?)?.toDouble();
         var why = 'closed';
+        final price = quote?.mid;
         if (price != null) {
           if (tp != null &&
               ((p['direction'] == 'buy' && price >= tp) ||
@@ -186,7 +271,9 @@ Future<void> _bgCheck() async {
           .toList()));
 
   // --- Price alerts ---
-  if (price != null) {
+  final alertPrice = quote?.mid;
+  if (alertPrice != null) {
+    final price = alertPrice;
     final raw = prefs.getString('tj_price_alerts');
     if (raw != null) {
       try {

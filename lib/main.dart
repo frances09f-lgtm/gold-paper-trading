@@ -131,12 +131,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Timer? _alertBannerTimer;
+
   void _checkAlerts() {
     if (price == null || !priceOk) return;
     for (final a in alerts) {
       if (a.check(price!)) {
         alertBanner = a;
         _saveAlerts();
+        // User request: a triggered banner auto-dismisses after 30s; the
+        // manual close button still works for earlier dismissal.
+        _alertBannerTimer?.cancel();
+        _alertBannerTimer = Timer(const Duration(seconds: 30), () {
+          alertBanner = null;
+          notifyListeners();
+        });
         // Also post a real system notification: otherwise an alert that
         // fires while the app is open is banner-only AND marked triggered,
         // so the background worker never notifies for it either.
@@ -447,6 +456,18 @@ class AppState extends ChangeNotifier {
       closing.remove(id);
       await paperRefresh();
       final pnl = (r is Map && r['pnl'] != null) ? (r['pnl'] as num).toDouble() : null;
+      // Auto TP/SL closes happen silently otherwise: no banner, and
+      // paperRefresh() syncs the worker's position set so the background
+      // path never reports them either. Post a system notification.
+      if (reason == 'TP hit' || reason == 'SL hit') {
+        final dirLabel = t['direction'] == 'buy' ? 'Buy' : 'Sell';
+        final q = (t['qty'] as num?)?.toDouble();
+        final pnlTxt = pnl != null ? ' · P/L ${money(pnl, sign: true)}' : '';
+        showForegroundNotification(
+          'Oro: ${reason == 'TP hit' ? 'take profit' : 'stop loss'}',
+          '$dirLabel XAU/USD x${q?.toStringAsFixed(2) ?? '?'} closed at ${px.toStringAsFixed(2)}$pnlTxt',
+        );
+      }
       return pnl != null ? 'closed:${money(pnl, sign: true)}' : 'closed';
     } catch (e) {
       closing.remove(id);

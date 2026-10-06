@@ -61,3 +61,30 @@ List<double> rsi(List<Candle> candles, int period) {
   }
   return out;
 }
+
+/// MACD (12/26/9) over real closes. macdLine[i] pairs with candles[25+i];
+/// signal[i] and hist[i] pair with candles[33+i]. Shorter inputs yield
+/// shorter (or empty) outputs, never padded or invented values.
+(List<double> line, List<double> signal, List<double> hist) macd(
+    List<Candle> candles) {
+  final e12 = ema(candles, 12);
+  final e26 = ema(candles, 26);
+  if (e26.isEmpty) return (const [], const [], const []);
+  // e12[i] pairs with candle 11+i, e26[j] with candle 25+j, so for candle
+  // 25+j the e12 index is 14+j.
+  final line = <double>[
+    for (int j = 0; j < e26.length; j++) e12[j + 14] - e26[j]
+  ];
+  if (line.length < 9) return (line, const [], const []);
+  const k = 2 / 10;
+  double prev = line.sublist(0, 9).fold<double>(0, (a, b) => a + b) / 9;
+  final signal = <double>[prev];
+  for (int i = 9; i < line.length; i++) {
+    prev = line[i] * k + prev * (1 - k);
+    signal.add(prev);
+  }
+  final hist = <double>[
+    for (int i = 0; i < signal.length; i++) line[i + 8] - signal[i]
+  ];
+  return (line, signal, hist);
+}

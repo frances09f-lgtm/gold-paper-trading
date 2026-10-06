@@ -156,6 +156,26 @@ void main() {
     expect(state.hLines, isEmpty);
   });
 
+  testWidgets('SMA200 and MACD chips toggle without errors', (tester) async {
+    await loadFonts();
+    final data = fakeCandles(120);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 380,
+          height: 480,
+          child: CandleChartPanel(loader: (iv) async => data),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('200'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MACD'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('interval switch reloads', (tester) async {
     await loadFonts();
     final calls = <String>[];

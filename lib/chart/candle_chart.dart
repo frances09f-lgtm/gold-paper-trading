@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../analysis.dart';
 import '../market_data/models.dart';
 import 'indicators.dart';
@@ -9,6 +11,14 @@ import 'indicators.dart';
 /// historical candle service - never synthetic or placeholder bars.
 
 typedef CandleLoader = Future<List<Candle>> Function(String interval);
+
+/// A user-drawn horizontal level (spec 9: named, stored locally, editable).
+/// Default name is neutral - never claim a level IS support or resistance.
+class DrawnLine {
+  final double price;
+  final String name;
+  const DrawnLine(this.price, this.name);
+}
 
 class ChartInterval {
   final String code; // provider interval code
@@ -49,15 +59,110 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   bool biasExpanded = false;
   bool smaOn = true;
   bool emaOn = true;
+  bool sma200On = false;
   bool rsiOn = false;
+  bool macdOn = false;
   bool drawMode = false;
-  final List<double> hLines = []; // user-drawn horizontal price lines
+  final List<DrawnLine> hLines = []; // user-drawn named price levels
 
   @override
   void initState() {
     super.initState();
+    _loadLines();
     _load();
     _armTimer();
+  }
+
+  /// Spec 9: drawn levels are stored locally (device), never on the server.
+  Future<void> _loadLines() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('tj_draw_lines');
+      if (raw == null) return;
+      final list = jsonDecode(raw) as List;
+      setState(() {
+        hLines
+          ..clear()
+          ..addAll(list.map((e) => DrawnLine(
+              (e['p'] as num).toDouble(), e['n']?.toString() ?? 'Level')));
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveLines() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'tj_draw_lines',
+          jsonEncode(hLines
+              .map((e) => {'p': e.price, 'n': e.name})
+              .toList()));
+    } catch (_) {}
+  }
+
+  /// Long-press near a drawn line: rename it (Support, Resistance, ...) or
+  /// delete it (spec 9: create / edit / delete / rename).
+  Future<void> _editLineAt(Offset pos, Size size) async {
+    if (hLines.isEmpty || candles.isEmpty) return;
+    const rightPad = 52.0;
+    const bottomPad = 16.0;
+    final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
+    final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
+    final plotH = size.height - bottomPad - rsiH - macdH;
+    if (pos.dy < 0 || pos.dy > plotH) return;
+    double hi = -double.infinity, lo = double.infinity;
+    for (final c in candles) {
+      hi = hi > c.high ? hi : c.high;
+      lo = lo < c.low ? lo : c.low;
+    }
+    if (widget.livePrice != null) {
+      hi = hi > widget.livePrice! ? hi : widget.livePrice!;
+      lo = lo < widget.livePrice! ? lo : widget.livePrice!;
+    }
+    final pad = ((hi - lo) * 0.05).clamp(0.01, double.infinity);
+    hi += pad;
+    lo -= pad;
+    final price = lo + (1 - pos.dy / plotH) * (hi - lo);
+    final range = hi - lo;
+    final idx = hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
+    if (idx < 0) return;
+    final line = hLines[idx];
+    final ctrl = TextEditingController(text: line.name);
+    final act = await showDialog<String>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: const Color(0xFF161B24),
+        title: Text('Level at ${line.price.toStringAsFixed(2)}',
+            style: const TextStyle(fontSize: 16)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+              hintText: 'Name (e.g. Support, Resistance)'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, 'delete'),
+              child: const Text('Delete',
+                  style: TextStyle(color: Color(0xFFFF6B6B)))),
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dCtx, 'save'),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    setState(() {
+      if (act == 'delete') {
+        hLines.removeAt(idx);
+      } else if (act == 'save') {
+        hLines[idx] =
+            DrawnLine(line.price, ctrl.text.trim().isEmpty ? 'Level' : ctrl.text.trim());
+      }
+    });
+    _saveLines();
   }
 
   @override
@@ -135,8 +240,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                 () => setState(() => smaOn = !smaOn)),
             _indChip('EMA', emaOn, const Color(0xFFFF9F43),
                 () => setState(() => emaOn = !emaOn)),
+            _indChip('200', sma200On, const Color(0xFF6FD3E0),
+                () => setState(() => sma200On = !sma200On)),
             _indChip('RSI', rsiOn, const Color(0xFFB78CFF),
                 () => setState(() => rsiOn = !rsiOn)),
+            _indChip('MACD', macdOn, const Color(0xFFF27EA9),
+                () => setState(() => macdOn = !macdOn)),
             _indChip('Draw', drawMode, const Color(0xFF5EE0A0),
                 () => setState(() => drawMode = !drawMode)),
             if (loading)
@@ -176,7 +285,11 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           const SizedBox(height: 6),
           _legend(dim),
           const SizedBox(height: 4),
-          SizedBox(height: rsiOn ? 280 : 220, child: _body()),
+          SizedBox(
+              height: 220 +
+                  ((rsiOn && candles.length > 14) ? 60 : 0) +
+                  ((macdOn && candles.length > 33) ? 60 : 0),
+              child: _body()),
           if (candles.length >= 50) _biasStrip(),
         ],
       ),
@@ -190,7 +303,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     const green = Color(0xFF5EE0A0);
     const red = Color(0xFFFF6B6B);
     const dim = Color(0xFF8A93A6);
-    final r = analyzeBias(candles, hLines);
+    final r = analyzeBias(candles, hLines.map((e) => e.price).toList());
     final color = r.bias == TrendBias.bullish
         ? green
         : r.bias == TrendBias.bearish
@@ -334,6 +447,10 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             _pick(d.localPosition, cons.maxWidth);
           }
         },
+        onLongPressStart: (d) {
+          _editLineAt(
+              d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+        },
         child: CustomPaint(
           size: Size(cons.maxWidth, cons.maxHeight),
           painter: CandlePainter(
@@ -342,10 +459,14 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               selected: selected,
               hLines: hLines,
               sma: smaOn ? sma(candles, 20) : null,
+              sma200: sma200On ? sma(candles, 200) : null,
               smaPeriod: 20,
               ema: emaOn ? ema(candles, 50) : null,
               emaPeriod: 50,
               rsi: rsiOn ? rsi(candles, 14) : null,
+              macdLine: macdOn ? macd(candles).$1 : null,
+              macdSignal: macdOn ? macd(candles).$2 : null,
+              macdHist: macdOn ? macd(candles).$3 : null,
               rsiPeriod: 14),
         ),
       );
@@ -368,7 +489,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsiOn && candles.length > 14) ? 64.0 : 0.0;
-    final plotH = size.height - bottomPad - rsiH;
+    final macdH = (macdOn && candles.length > 33) ? 64.0 : 0.0;
+    final plotH = size.height - bottomPad - rsiH - macdH;
     if (pos.dy < 0 || pos.dy > plotH) return;
     double hi = -double.infinity, lo = double.infinity;
     for (final c in candles) {
@@ -385,14 +507,16 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     // remove if tapping within 1% of range of an existing line
     final range = hi - lo;
-    final hit = hLines.indexWhere((p) => (p - price).abs() < range * 0.02);
+    final hit =
+        hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
     setState(() {
       if (hit >= 0) {
         hLines.removeAt(hit);
       } else {
-        hLines.add(price);
+        hLines.add(DrawnLine(price, 'Level ${hLines.length + 1}'));
       }
     });
+    _saveLines();
   }
 }
 
@@ -402,11 +526,15 @@ class CandlePainter extends CustomPainter {
   final int? selected;
   final List<double>? sma;
   final int smaPeriod;
+  final List<double>? sma200;
   final List<double>? ema;
   final int emaPeriod;
   final List<double>? rsi;
   final int rsiPeriod;
-  final List<double> hLines;
+  final List<double>? macdLine;
+  final List<double>? macdSignal;
+  final List<double>? macdHist;
+  final List<DrawnLine> hLines;
 
   CandlePainter(
       {required this.candles,
@@ -415,10 +543,14 @@ class CandlePainter extends CustomPainter {
       this.hLines = const [],
       this.sma,
       this.smaPeriod = 20,
+      this.sma200,
       this.ema,
       this.emaPeriod = 50,
       this.rsi,
-      this.rsiPeriod = 14});
+      this.rsiPeriod = 14,
+      this.macdLine,
+      this.macdSignal,
+      this.macdHist});
 
   static const bull = Color(0xFF2EC27E);
   static const bear = Color(0xFFE0654F);
@@ -431,8 +563,9 @@ class CandlePainter extends CustomPainter {
     const rightPad = 52.0;
     const bottomPad = 16.0;
     final rsiH = (rsi != null && rsi!.isNotEmpty) ? 64.0 : 0.0;
+    final macdH = (macdLine != null && macdLine!.isNotEmpty) ? 64.0 : 0.0;
     final plotW = size.width - rightPad;
-    final plotH = size.height - bottomPad - rsiH;
+    final plotH = size.height - bottomPad - rsiH - macdH;
     if (candles.isEmpty || plotW <= 0 || plotH <= 0) return;
 
     double hi = -double.infinity, lo = double.infinity;
@@ -519,6 +652,7 @@ class CandlePainter extends CustomPainter {
     }
 
     if (sma != null) drawLine(sma!, smaPeriod, const Color(0xFF4EA1FF));
+    if (sma200 != null) drawLine(sma200!, 200, const Color(0xFF6FD3E0));
     if (ema != null) drawLine(ema!, emaPeriod, const Color(0xFFFF9F43));
 
     // crosshair
@@ -566,13 +700,13 @@ class CandlePainter extends CustomPainter {
     final hlPaint = Paint()
       ..color = const Color(0xFF5EE0A0)
       ..strokeWidth = 1;
-    for (final p in hLines) {
-      if (p < lo || p > hi) continue;
-      final yy = y(p);
+    for (final l in hLines) {
+      if (l.price < lo || l.price > hi) continue;
+      final yy = y(l.price);
       canvas.drawLine(Offset(0, yy), Offset(plotW, yy), hlPaint);
       final tp = TextPainter(
           text: TextSpan(
-              text: p.toStringAsFixed(2),
+              text: '${l.name} ${l.price.toStringAsFixed(2)}',
               style: const TextStyle(
                   color: Color(0xFF5EE0A0),
                   fontSize: 9,
@@ -637,6 +771,75 @@ class CandlePainter extends CustomPainter {
         ..layout();
       final tx = (step * (i + 0.5) - tp.width / 2).clamp(0.0, plotW - tp.width);
       tp.paint(canvas, Offset(tx, plotH + 3));
+    }
+
+    // MACD sub-pane (histogram + line/signal, real closes only)
+    if (macdH > 0) {
+      final top = plotH + 8 + rsiH;
+      final h = macdH - 8;
+      canvas.drawRect(Rect.fromLTWH(0, top, plotW, h),
+          Paint()..color = const Color(0xFF141923));
+      double mn = 0, mx = 0;
+      void ext(List<double>? s) {
+        if (s == null) return;
+        for (final v in s) {
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+      }
+
+      ext(macdLine);
+      ext(macdSignal);
+      ext(macdHist);
+      if (mx - mn < 1e-9) mx = mn + 1;
+      double my(double v) => top + h * (1 - (v - mn) / (mx - mn));
+      canvas.drawLine(Offset(0, my(0)), Offset(plotW, my(0)),
+          Paint()..color = const Color(0xFF232A35));
+      final stepI = plotW / n;
+      if (macdHist != null) {
+        for (int i = 0; i < macdHist!.length; i++) {
+          final idx = 33 + i;
+          if (idx >= n) break;
+          final x = stepI * (idx + 0.5);
+          final v = macdHist![i];
+          final y0 = my(0), y1 = my(v);
+          canvas.drawRect(
+              Rect.fromLTRB(x - 1.5, y0 < y1 ? y0 : y1, x + 1.5,
+                  y0 > y1 ? y0 : y1),
+              Paint()..color = v >= 0 ? bull : bear);
+        }
+      }
+      void mline(List<double> s, int off, Color c) {
+        final paint = Paint()
+          ..color = c
+          ..strokeWidth = 1.1
+          ..style = PaintingStyle.stroke;
+        final path = Path();
+        for (int i = 0; i < s.length; i++) {
+          final idx = off + i;
+          if (idx >= n) break;
+          final x = stepI * (idx + 0.5);
+          if (i == 0) {
+            path.moveTo(x, my(s[i]));
+          } else {
+            path.lineTo(x, my(s[i]));
+          }
+        }
+        canvas.drawPath(path, paint);
+      }
+
+      mline(macdLine!, 25, const Color(0xFF4EA1FF));
+      if (macdSignal != null && macdSignal!.isNotEmpty) {
+        mline(macdSignal!, 33, const Color(0xFFFF9F43));
+      }
+      final label = TextPainter(
+          text: TextSpan(
+              text: 'MACD ${macdLine!.last.toStringAsFixed(2)}',
+              style: const TextStyle(
+                  color: axis, fontSize: 9, fontFamily: 'Roboto')),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      label.paint(canvas, Offset(4, top + 2));
     }
   }
 

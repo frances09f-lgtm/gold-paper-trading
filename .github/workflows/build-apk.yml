@@ -18,8 +18,8 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter test || true
-      - run: flutter build apk --debug --target-platform android-arm64 -v --dart-define=MARKET_DATA_API_KEY=${{ secrets.MARKET_DATA_API_KEY }}
+      - run: flutter build apk --release --target-platform android-arm64 -v --dart-define=MARKET_DATA_API_KEY=${{ secrets.MARKET_DATA_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
-          name: gold-paper-trading-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: oro-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

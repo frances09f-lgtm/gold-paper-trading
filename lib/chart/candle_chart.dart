@@ -17,7 +17,7 @@ class ChartInterval {
 }
 
 const intervals = [
-  ChartInterval('1min', '1m', Duration(seconds: 60)),
+  ChartInterval('1min', '1m', Duration(seconds: 15)),
   ChartInterval('15min', '15m', Duration(minutes: 5)),
   ChartInterval('1h', '1H', Duration(minutes: 15)),
   ChartInterval('4h', '4H', Duration(minutes: 30)),
@@ -396,12 +396,26 @@ class CandlePainter extends CustomPainter {
       tp.paint(canvas, Offset(plotW + 4, (yy - tp.height / 2).clamp(0.0, size.height - tp.height)));
     }
 
-    // candles
-    final n = candles.length;
+    // candles. The last bar is the FORMING candle: its close tracks the
+    // real live quote (and its wick extends) so the chart feels live.
+    // No synthetic data - livePrice is always a real feed quote.
+    final eff = List<Candle>.of(candles);
+    if (livePrice != null && eff.isNotEmpty) {
+      final l = eff.last;
+      eff[eff.length - 1] = Candle(
+        time: l.time,
+        open: l.open,
+        high: math.max(l.high, livePrice!),
+        low: math.min(l.low, livePrice!),
+        close: livePrice!,
+        volume: l.volume,
+      );
+    }
+    final n = eff.length;
     final step = plotW / n;
     final bodyW = math.max(step * 0.65, 1.5);
     for (int i = 0; i < n; i++) {
-      final c = candles[i];
+      final c = eff[i];
       final up = c.close >= c.open;
       final paint = Paint()..color = up ? bull : bear;
       final cx = step * (i + 0.5);

@@ -11,6 +11,7 @@ import 'market_data/swissquote_provider.dart';
 import 'chart/candle_chart.dart';
 import 'analytics.dart';
 import 'alerts.dart';
+import 'notification_log.dart';
 import 'watch_service.dart';
 import 'news.dart';
 import 'notifications.dart';
@@ -94,6 +95,7 @@ class AppState extends ChangeNotifier {
   double starting = 10000;
   double balance = 10000;
   List<Map<String, dynamic>> positions = [];
+  int notifUnread = 0;
   List<Map<String, dynamic>> trades = [];
   Map<String, Map<String, double?>> limits = {};
 
@@ -242,6 +244,7 @@ class AppState extends ChangeNotifier {
           a.triggeredAt != null &&
           a.triggeredAt!.isBefore(cutoff));
       if (alerts.length != before) _saveAlerts();
+      refreshNotifUnread();
       notifyListeners();
     });
     if (pin.isNotEmpty) await unlock(pin);
@@ -436,6 +439,16 @@ class AppState extends ChangeNotifier {
     priceOk = false;
     notifyListeners();
     _fetching = false;
+  }
+
+  Future<void> refreshNotifUnread() async {
+    final p = prefs;
+    if (p == null) return;
+    final n = NotificationLog.unread(p);
+    if (n != notifUnread) {
+      notifUnread = n;
+      notifyListeners();
+    }
   }
 
   Future<void> paperRefresh() async {
@@ -748,6 +761,19 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
             title: const Text('Oro',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             actions: [
+              IconButton(
+                tooltip: 'Notification history',
+                icon: Badge(
+                  isLabelVisible: app.notifUnread > 0,
+                  label: Text('${app.notifUnread}'),
+                  child: const Icon(Icons.notifications_none),
+                ),
+                onPressed: () async {
+                  await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const NotificationHistoryScreen()));
+                  app.refreshNotifUnread();
+                },
+              ),
               TextButton(
                   onPressed: app.lock,
                   child: const Text('Lock', style: TextStyle(color: cDim)))

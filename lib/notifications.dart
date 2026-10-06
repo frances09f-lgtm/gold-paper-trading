@@ -13,6 +13,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
+import 'notification_log.dart';
 
 const String bgTaskName = 'oroBackgroundCheck';
 const String _channelId = 'oro_alerts';
@@ -55,6 +56,9 @@ Future<void> initNotifications() async {
 }
 
 Future<void> _notify(int id, String title, String body) async {
+  // Record every posted notification for the in-app history (bell icon).
+  // Also runs in the background worker isolate; SharedPreferences is shared.
+  await NotificationLog.add(title, body);
   await _fln.show(
     id,
     title,

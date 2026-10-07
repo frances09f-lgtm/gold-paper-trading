@@ -48,6 +48,15 @@ const intervals = [
   ChartInterval('1day', '1D', Duration(hours: 1)),
 ];
 
+const tradeRanges = [
+  ChartInterval('range:1H', '1H', Duration(minutes: 1)),
+  ChartInterval('range:1D', '1D', Duration(minutes: 5)),
+  ChartInterval('range:1W', '1W', Duration(minutes: 15)),
+  ChartInterval('range:1M', '1M', Duration(hours: 1)),
+  ChartInterval('range:3M', '3M', Duration(hours: 4)),
+  ChartInterval('range:1Y', '1Y', Duration(hours: 12)),
+];
+
 class CandleChartPanel extends StatefulWidget {
   /// Loads real candles; may throw. When null, no candle source is
   /// configured and the panel says so instead of drawing fake bars.
@@ -59,12 +68,14 @@ class CandleChartPanel extends StatefulWidget {
   /// Fullscreen mode: the chart body fills the available height instead
   /// of the fixed in-page height.
   final bool expand;
+  final bool rangeMode;
 
   const CandleChartPanel({
     super.key,
     this.loader,
     this.livePrice,
     this.expand = false,
+    this.rangeMode = false,
   });
 
   @override
@@ -146,6 +157,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   @override
   void initState() {
     super.initState();
+    if (widget.rangeMode) interval = tradeRanges[1];
     _loadLines();
     _load();
     _armTimer();
@@ -458,8 +470,10 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       });
     }
     try {
-      final data = await loader(interval.code);
-      if (!mounted) return;
+      final requested = interval.code;
+      final raw = await loader(requested);
+      final data = widget.rangeMode ? trimTradeRange(raw, requested) : raw;
+      if (!mounted || interval.code != requested) return;
       setState(() {
         candles = data;
         loading = false;
@@ -661,6 +675,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                       builder: (_) => FullscreenChartPage(
                         loader: widget.loader,
                         livePrice: widget.livePrice,
+                        rangeMode: widget.rangeMode,
                       ),
                     ),
                   ),
@@ -677,40 +692,44 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             ],
           ),
           const SizedBox(height: 6),
-          Row(
-            children: [
-              ...intervals.map((iv) {
-                final on = iv.code == interval.code;
-                return GestureDetector(
-                  onTap: () => _setInterval(iv),
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: on ? const Color(0xFFF5C242) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
+          if (!widget.rangeMode) ...[
+            Row(
+              children: [
+                ...(widget.rangeMode ? tradeRanges : intervals).map((iv) {
+                  final on = iv.code == interval.code;
+                  return GestureDetector(
+                    onTap: () => _setInterval(iv),
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
                         color: on
                             ? const Color(0xFFF5C242)
-                            : const Color(0xFF2A3140),
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: on
+                              ? const Color(0xFFF5C242)
+                              : const Color(0xFF2A3140),
+                        ),
+                      ),
+                      child: Text(
+                        iv.label,
+                        style: TextStyle(
+                          color: on ? Colors.black : const Color(0xFF8A93A6),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    child: Text(
-                      iv.label,
-                      style: TextStyle(
-                        color: on ? Colors.black : const Color(0xFF8A93A6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ],
-          ),
+                  );
+                }),
+              ],
+            ),
+          ],
           const SizedBox(height: 6),
           _legend(dim),
           const SizedBox(height: 4),
@@ -724,6 +743,51 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                   ((macdOn && candles.length > 33) ? 60 : 0),
               child: _body(),
             ),
+          if (widget.rangeMode) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                ...(widget.rangeMode ? tradeRanges : intervals).map((iv) {
+                  final on = iv.code == interval.code;
+                  return GestureDetector(
+                    onTap: () => _setInterval(iv),
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? const Color(0xFFF5C242)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: on
+                              ? const Color(0xFFF5C242)
+                              : const Color(0xFF2A3140),
+                        ),
+                      ),
+                      child: Text(
+                        iv.label,
+                        style: TextStyle(
+                          color: on ? Colors.black : const Color(0xFF8A93A6),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+            const SizedBox(height: 6),
+            if (candles.length >= 2)
+              Text(
+                '${interval.label} selected · available change ${(candles.last.close - candles.first.close) >= 0 ? '+' : ''}${(candles.last.close - candles.first.close).toStringAsFixed(2)} (${((candles.last.close - candles.first.close) / candles.first.close * 100).toStringAsFixed(2)}%) over ${candles.length} available candles',
+                style: const TextStyle(color: Color(0xFF8A93A6), fontSize: 10),
+              ),
+          ],
           if (candles.length >= 50) _biasStrip(),
         ],
       ),
@@ -1735,7 +1799,13 @@ class CandlePainter extends CustomPainter {
 class FullscreenChartPage extends StatefulWidget {
   final CandleLoader? loader;
   final double? livePrice;
-  const FullscreenChartPage({super.key, this.loader, this.livePrice});
+  final bool rangeMode;
+  const FullscreenChartPage({
+    super.key,
+    this.loader,
+    this.livePrice,
+    this.rangeMode = false,
+  });
 
   @override
   State<FullscreenChartPage> createState() => _FullscreenChartPageState();
@@ -1771,6 +1841,7 @@ class _FullscreenChartPageState extends State<FullscreenChartPage> {
                   loader: widget.loader,
                   livePrice: widget.livePrice,
                   expand: true,
+                  rangeMode: widget.rangeMode,
                 ),
               ),
             ),
@@ -1798,4 +1869,28 @@ class _FullscreenChartPageState extends State<FullscreenChartPage> {
       ),
     );
   }
+}
+
+(String, int) tradeRangeSpec(String code) => switch (code) {
+  'range:1H' => ('1min', 120),
+  'range:1D' => ('15min', 120),
+  'range:1W' => ('1h', 200),
+  'range:1M' => ('4h', 200),
+  'range:3M' => ('1day', 120),
+  'range:1Y' => ('1day', 400),
+  _ => (code, 120),
+};
+Duration tradeRangeDuration(String code) => switch (code) {
+  'range:1H' => const Duration(hours: 1),
+  'range:1D' => const Duration(days: 1),
+  'range:1W' => const Duration(days: 7),
+  'range:1M' => const Duration(days: 30),
+  'range:3M' => const Duration(days: 90),
+  'range:1Y' => const Duration(days: 365),
+  _ => const Duration(days: 1),
+};
+List<Candle> trimTradeRange(List<Candle> data, String code) {
+  if (data.isEmpty) return data;
+  final from = data.last.time.subtract(tradeRangeDuration(code));
+  return data.where((c) => !c.time.isBefore(from)).toList();
 }

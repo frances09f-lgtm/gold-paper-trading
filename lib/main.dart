@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'market_data/market_data_config.dart';
 import 'market_data/models.dart';
 import 'market_data/twelve_data_candles.dart';
@@ -45,7 +47,8 @@ String money(num? n, {bool sign = false}) {
   return s;
 }
 
-Color cls(num? n) => n == null ? cDim : (n > 0 ? cGreen : (n < 0 ? cRed : cDim));
+Color cls(num? n) =>
+    n == null ? cDim : (n > 0 ? cGreen : (n < 0 ? cRed : cDim));
 
 /// $ outcome if this position exits at [level]: (level - entry) * dir * qty.
 /// Used to show "+$5" at TP / "-$2" at SL (user request), live in dialogs
@@ -95,10 +98,10 @@ class AppState extends ChangeNotifier {
     return px == null ? null : slippage.fill(px, buying: dir != 'buy');
   }
 
-  double? get spread =>
-      (bid != null && ask != null) ? ask! - bid! : null;
+  double? get spread => (bid != null && ask != null) ? ask! - bid! : null;
   bool get priceFresh =>
-      priceOk && DateTime.now().millisecondsSinceEpoch - priceAt < 5 * 60 * 1000;
+      priceOk &&
+      DateTime.now().millisecondsSinceEpoch - priceAt < 5 * 60 * 1000;
 
   double starting = 10000;
   double balance = 10000;
@@ -129,17 +132,21 @@ class AppState extends ChangeNotifier {
   PriceAlert? alertBanner; // most recent trigger, cleared on dismiss
 
   void _saveAlerts() {
-    prefs?.setString('tj_price_alerts',
-        jsonEncode(alerts.map((a) => a.toJson()).toList()));
+    prefs?.setString(
+      'tj_price_alerts',
+      jsonEncode(alerts.map((a) => a.toJson()).toList()),
+    );
   }
 
   void addAlert(double level, bool above) {
-    alerts.add(PriceAlert(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      level: level,
-      above: above,
-      createdAt: DateTime.now(),
-    ));
+    alerts.add(
+      PriceAlert(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        level: level,
+        above: above,
+        createdAt: DateTime.now(),
+      ),
+    );
     _saveAlerts();
     notifyListeners();
   }
@@ -239,8 +246,9 @@ class AppState extends ChangeNotifier {
         final m = jsonDecode(cache) as Map<String, dynamic>;
         starting = (m['starting'] as num?)?.toDouble() ?? starting;
         balance = (m['balance'] as num?)?.toDouble() ?? balance;
-        positions =
-            List<Map<String, dynamic>>.from(m['positions'] as List? ?? []);
+        positions = List<Map<String, dynamic>>.from(
+          m['positions'] as List? ?? [],
+        );
       } catch (_) {}
     }
     fetchPrice();
@@ -256,10 +264,12 @@ class AppState extends ChangeNotifier {
       // (the banner separately auto-dismisses after 30s).
       final cutoff = DateTime.now().subtract(const Duration(minutes: 1));
       final before = alerts.length;
-      alerts.removeWhere((a) =>
-          a.triggered &&
-          a.triggeredAt != null &&
-          a.triggeredAt!.isBefore(cutoff));
+      alerts.removeWhere(
+        (a) =>
+            a.triggered &&
+            a.triggeredAt != null &&
+            a.triggeredAt!.isBefore(cutoff),
+      );
       if (alerts.length != before) _saveAlerts();
       refreshNotifUnread();
       notifyListeners();
@@ -279,8 +289,10 @@ class AppState extends ChangeNotifier {
   Slippage slippage = const Slippage('off');
 
   void _loadSlippage() {
-    slippage = Slippage(prefs?.getString('tj_slippage_mode') ?? 'off',
-        prefs?.getDouble('tj_slippage_custom') ?? 0);
+    slippage = Slippage(
+      prefs?.getString('tj_slippage_mode') ?? 'off',
+      prefs?.getDouble('tj_slippage_custom') ?? 0,
+    );
   }
 
   void setSlippage(String mode, double custom) {
@@ -353,9 +365,11 @@ class AppState extends ChangeNotifier {
 
   Future<dynamic> rpc(String fn, Map<String, dynamic> args) async {
     final r = await http
-        .post(Uri.parse('$sbUrl/rest/v1/rpc/$fn'),
-            headers: {'apikey': sbKey, 'Content-Type': 'application/json'},
-            body: jsonEncode(args))
+        .post(
+          Uri.parse('$sbUrl/rest/v1/rpc/$fn'),
+          headers: {'apikey': sbKey, 'Content-Type': 'application/json'},
+          body: jsonEncode(args),
+        )
         .timeout(const Duration(seconds: 20));
     dynamic j;
     try {
@@ -436,7 +450,8 @@ class AppState extends ChangeNotifier {
               .timeout(const Duration(seconds: 10));
           final j = jsonDecode(r.body);
           final p = (j['price'] as num).toDouble();
-          final t = DateTime.tryParse(j['updatedAt']?.toString() ?? '')
+          final t =
+              DateTime.tryParse(j['updatedAt']?.toString() ?? '')
                   ?.millisecondsSinceEpoch ??
               DateTime.now().millisecondsSinceEpoch;
           return (p: p, t: t);
@@ -490,30 +505,40 @@ class AppState extends ChangeNotifier {
       final s = await rpc('paper_state', {'p': pin});
       starting = (s['starting'] as num).toDouble();
       balance = (s['balance'] as num).toDouble();
-      positions = List<Map<String, dynamic>>.from(s['positions'] as List? ?? []);
+      positions = List<Map<String, dynamic>>.from(
+        s['positions'] as List? ?? [],
+      );
       notifyListeners();
       // Stage (d): device-local cache so the app opens with last-known
       // state while offline; the network refresh above always wins.
-      prefs?.setString('tj_paper_cache', jsonEncode({
-        'accountAt': DateTime.now().millisecondsSinceEpoch,
-        'starting': starting,
-        'balance': balance,
-        'positions': positions,
-      }));
+      prefs?.setString(
+        'tj_paper_cache',
+        jsonEncode({
+          'accountAt': DateTime.now().millisecondsSinceEpoch,
+          'starting': starting,
+          'balance': balance,
+          'positions': positions,
+        }),
+      );
       OroBridge.notePaper(prefs);
       // Keep the background worker's position set in sync so a position
       // closed manually in the app is not later misreported as TP/SL.
       prefs?.setString(
-          'tj_bg_positions',
-          jsonEncode(positions
-              .map((p) => {
-                    'id': p['id'],
-                    'direction': p['direction'],
-                    'qty': p['qty'],
-                    'tp': p['tp'],
-                    'sl': p['sl'],
-                  })
-              .toList()));
+        'tj_bg_positions',
+        jsonEncode(
+          positions
+              .map(
+                (p) => {
+                  'id': p['id'],
+                  'direction': p['direction'],
+                  'qty': p['qty'],
+                  'tp': p['tp'],
+                  'sl': p['sl'],
+                },
+              )
+              .toList(),
+        ),
+      );
       // v15 "always watching" (spec 35): native foreground service keeps the
       // process alive while positions are open so the background TP/SL and
       // price-alert checks survive OEM task-killers. Checking itself stays
@@ -541,7 +566,9 @@ class AppState extends ChangeNotifier {
     final qty = (t['qty'] as num).toDouble();
     final dirStr = t['direction'] == 'buy' ? 'buy' : 'sell';
     final dir = t['direction'] == 'buy' ? 1.0 : -1.0;
-    final mark = exitSidePrice(dirStr); // a buy is sold at bid, a sell bought back at ask
+    final mark = exitSidePrice(
+      dirStr,
+    ); // a buy is sold at bid, a sell bought back at ask
     if (mark == null) return null;
     return (mark - entry) * dir * qty;
   }
@@ -564,7 +591,12 @@ class AppState extends ChangeNotifier {
     return sum;
   }
 
-  Future<String?> openPaper(String dir, double qty, double? tp, double? sl) async {
+  Future<String?> openPaper(
+    String dir,
+    double qty,
+    double? tp,
+    double? sl,
+  ) async {
     if (!priceFresh) {
       return marketClosedMessage() ??
           'No fresh live price - cannot open right now.';
@@ -576,8 +608,14 @@ class AppState extends ChangeNotifier {
     final px = entrySidePrice(dir); // buy at ask, sell at bid
     if (px == null) return 'No fresh live price - cannot open right now.';
     try {
-      await rpc('paper_open',
-          {'p': pin, 'd': dir, 'price': px, 'q': qty, 'target': tp, 'stop': sl});
+      await rpc('paper_open', {
+        'p': pin,
+        'd': dir,
+        'price': px,
+        'q': qty,
+        'target': tp,
+        'stop': sl,
+      });
       UsageReporter.report('trade_opened', {'src': 'manual'});
       await paperRefresh();
       return null;
@@ -599,14 +637,20 @@ class AppState extends ChangeNotifier {
     closing.add(id);
     notifyListeners();
     try {
-      final r = await rpc('paper_close',
-          {'p': pin, 'tid': t['id'], 'price': px, 'why': reason ?? 'Manual close'});
+      final r = await rpc('paper_close', {
+        'p': pin,
+        'tid': t['id'],
+        'price': px,
+        'why': reason ?? 'Manual close',
+      });
       UsageReporter.report('trade_closed', {'src': 'manual'});
       closing.remove(id);
       // Dedupe with the background worker: it must not re-notify this close.
       if (prefs != null) await notifiedAdd(prefs!, 'close:$id');
       await paperRefresh();
-      final pnl = (r is Map && r['pnl'] != null) ? (r['pnl'] as num).toDouble() : null;
+      final pnl = (r is Map && r['pnl'] != null)
+          ? (r['pnl'] as num).toDouble()
+          : null;
       // Auto TP/SL closes happen silently otherwise: no banner, and
       // paperRefresh() syncs the worker's position set so the background
       // path never reports them either. Post a system notification.
@@ -649,7 +693,9 @@ class AppState extends ChangeNotifier {
       await refreshTrades();
       return null;
     } on RpcException catch (e) {
-      return e.badPin ? 'PIN changed. Lock and re-enter.' : 'Could not save: ${e.message}';
+      return e.badPin
+          ? 'PIN changed. Lock and re-enter.'
+          : 'Could not save: ${e.message}';
     } catch (_) {
       return 'Could not save';
     }
@@ -703,7 +749,9 @@ class AppState extends ChangeNotifier {
       if (t['pnl'] != null) {
         out.add((
           pnl: (t['pnl'] as num).toDouble(),
-          at: DateTime.tryParse(t['traded_at']?.toString() ?? '') ?? DateTime.now()
+          at:
+              DateTime.tryParse(t['traded_at']?.toString() ?? '') ??
+              DateTime.now(),
         ));
       }
     }
@@ -711,7 +759,9 @@ class AppState extends ChangeNotifier {
       if (t['status'] == 'closed' && t['pnl'] != null) {
         out.add((
           pnl: (t['pnl'] as num).toDouble(),
-          at: DateTime.tryParse(t['closed_at']?.toString() ?? '') ?? DateTime.now()
+          at:
+              DateTime.tryParse(t['closed_at']?.toString() ?? '') ??
+              DateTime.now(),
         ));
       }
     }
@@ -721,24 +771,30 @@ class AppState extends ChangeNotifier {
 }
 
 ThemeData buildAppTheme() => ThemeData(
-      brightness: Brightness.dark,
-      fontFamily: 'Roboto',
-      scaffoldBackgroundColor: cBg,
-      colorScheme: const ColorScheme.dark(
-          surface: cCard, primary: cGreen, error: cRed, onSurface: Colors.white),
-      appBarTheme: const AppBarTheme(backgroundColor: cBg, elevation: 0),
-      cardColor: cCard,
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: cBg,
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: cBorder)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: cBorder)),
-      ),
-    );
+  brightness: Brightness.dark,
+  fontFamily: 'Roboto',
+  scaffoldBackgroundColor: cBg,
+  colorScheme: const ColorScheme.dark(
+    surface: cCard,
+    primary: cGreen,
+    error: cRed,
+    onSurface: Colors.white,
+  ),
+  appBarTheme: const AppBarTheme(backgroundColor: cBg, elevation: 0),
+  cardColor: cCard,
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: cBg,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: cBorder),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: cBorder),
+    ),
+  ),
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -802,8 +858,10 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
         if (!app.unlocked) return LockScreen(app: app);
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Oro',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            title: const Text(
+              'Oro',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
             actions: [
               IconButton(
                 tooltip: 'Notification history',
@@ -813,8 +871,11 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
                   child: const Icon(Icons.notifications_none),
                 ),
                 onPressed: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const NotificationHistoryScreen()));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationHistoryScreen(),
+                    ),
+                  );
                   app.refreshNotifUnread();
                 },
               ),
@@ -839,22 +900,31 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               if (i == 2) app.refreshTrades();
             },
             destinations: [
-              const NavigationDestination(icon: Icon(Icons.show_chart), label: 'Trade'),
+              const NavigationDestination(
+                icon: Icon(Icons.show_chart),
+                label: 'Trade',
+              ),
               NavigationDestination(
                 icon: Badge(
-                  isLabelVisible:
-                      app.positions.where((t) => t['status'] == 'open').isNotEmpty,
+                  isLabelVisible: app.positions
+                      .where((t) => t['status'] == 'open')
+                      .isNotEmpty,
                   label: Text(
-                      '${app.positions.where((t) => t['status'] == 'open').length}'),
+                    '${app.positions.where((t) => t['status'] == 'open').length}',
+                  ),
                   child: const Icon(Icons.work_outline),
                 ),
                 label: 'Portfolio',
               ),
               const NavigationDestination(icon: Icon(Icons.add), label: 'Add'),
               const NavigationDestination(
-                  icon: Icon(Icons.bar_chart), label: 'Stats'),
+                icon: Icon(Icons.bar_chart),
+                label: 'Stats',
+              ),
               const NavigationDestination(
-                  icon: Icon(Icons.smart_toy_outlined), label: 'AI'),
+                icon: Icon(Icons.smart_toy_outlined),
+                label: 'AI',
+              ),
             ],
           ),
         );
@@ -882,8 +952,10 @@ class _LockScreenState extends State<LockScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Oro',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Text(
+                'Oro',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               const Text('Enter your PIN', style: TextStyle(color: cDim)),
               const SizedBox(height: 20),
@@ -900,17 +972,23 @@ class _LockScreenState extends State<LockScreen> {
                 width: double.infinity,
                 child: FilledButton(
                   style: FilledButton.styleFrom(
-                      backgroundColor: cGreen,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14)),
-                  onPressed: app.unlocking ? null : () => app.unlock(ctrl.text.trim()),
+                    backgroundColor: cGreen,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: app.unlocking
+                      ? null
+                      : () => app.unlock(ctrl.text.trim()),
                   child: Text(app.unlocking ? 'Opening...' : 'Open'),
                 ),
               ),
               if (app.lockError.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(app.lockError, style: const TextStyle(color: cRed)),
+                  child: Text(
+                    app.lockError,
+                    style: const TextStyle(color: cRed),
+                  ),
                 ),
             ],
           ),
@@ -921,16 +999,16 @@ class _LockScreenState extends State<LockScreen> {
 }
 
 Widget card(Widget child, {EdgeInsets? padding}) => Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: padding ?? const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cBorder),
-      ),
-      child: child,
-    );
+  width: double.infinity,
+  margin: const EdgeInsets.only(bottom: 12),
+  padding: padding ?? const EdgeInsets.all(14),
+  decoration: BoxDecoration(
+    color: cCard,
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(color: cBorder),
+  ),
+  child: child,
+);
 
 class TradeTab extends StatefulWidget {
   final AppState app;
@@ -987,301 +1065,579 @@ class _TradeTabState extends State<TradeTab> {
   @override
   Widget build(BuildContext context) {
     final fresh = app.priceFresh;
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        Stack(children: [
+    return ColoredBox(
+      color: const Color(0xFF10182A),
+      child: ListView(
+        padding: const EdgeInsets.all(14),
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 18),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF5C242),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.stacked_bar_chart,
+                    color: Color(0xFF10182A),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'GOLD',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'XAU/USD · Paper trading',
+                        style: TextStyle(color: cDim, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  app.priceOk ? '\$${fmt(app.price)}' : '--',
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
           CandleChartPanel(
-            loader: widget.candleLoaderOverride ??
+            rangeMode: true,
+            loader:
+                widget.candleLoaderOverride ??
                 (_candles == null
                     ? null
-                    : (iv) => _candles.fetchCandles(Instrument.xauUsd,
-                        interval: iv, limit: 120)),
+                    : (iv) async {
+                        final spec = tradeRangeSpec(iv);
+                        final data = await _candles.fetchCandles(
+                          Instrument.xauUsd,
+                          interval: spec.$1,
+                          limit: spec.$2,
+                        );
+                        return trimTradeRange(data, iv);
+                      }),
             livePrice: app.price,
           ),
-          Positioned(
-            top: 150,
-            left: 10,
-            child: IgnorePointer(
-              child: Text(
-                app.priceOk
-                    ? '\$${fmt(app.price)}${app.priceFresh ? '' : (marketClosedMessage() != null ? ' - market closed' : ' - stale')}'
-                    : '--',
-                style: TextStyle(
-                    color: app.priceFresh ? Colors.white70 : cDim,
-                    fontSize: 12,
-                    fontFamily: 'Roboto'),
-              ),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 10),
-        const SessionsStrip(),
-        const SizedBox(height: 10),
-        const Text('New order',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 10),
-        card(Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              Expanded(
-                child: _segBtn('Buy', cGreen, dir == 'buy', () => setState(() => dir = 'buy')),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _segBtn('Sell', cRed, dir == 'sell', () => setState(() => dir = 'sell')),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Size (oz of gold)'),
-            ),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: tpCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Take profit (optional)'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: slCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Stop loss (optional)'),
-                ),
-              ),
-            ]),
-            _riskRow(),
-            if (err.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(err, style: const TextStyle(color: cRed, fontSize: 12)),
-              ),
-            const SizedBox(height: 12),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: dir == 'buy' ? cGreen : cRed,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
-              onPressed: (!fresh || opening)
-                  ? null
-                  : () async {
-                      final q = parseNum(qtyCtrl.text);
-                      if (q == null || q <= 0) {
-                        setState(() => err = 'Enter a size in oz (like 0.5 or 1).');
-                        return;
-                      }
-                      setState(() {
-                        opening = true;
-                        err = '';
-                      });
-                      final warn = app.limitWarning();
-                      if (warn != null && !app.blockOnLimit) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('Warning: $warn'),
-                            duration: const Duration(seconds: 3)));
-                      }
-                      final r = await app.openPaper(
-                          dir, q, parseNum(tpCtrl.text), parseNum(slCtrl.text));
-                      if (!mounted) return;
-                      if (r != null) {
-                        setState(() => err = r);
-                      } else {
-                        tpCtrl.clear();
-                        slCtrl.clear();
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text(
-                                '${dir.toUpperCase()} opened at ${fmt(app.price)}'),
-                            duration: const Duration(seconds: 2)));
-                      }
-                      setState(() => opening = false);
-                    },
-              child: Text(opening
-                  ? 'Opening...'
-                  : '${dir == 'buy' ? 'Buy' : 'Sell'} at live price'),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'TP/SL auto-close works only while the app is open.',
-              style: TextStyle(color: cDim, fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        )),
-        const SizedBox(height: 10),
-        card(Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Price alerts',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: alertCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                      labelText: 'Alert price', isDense: true),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => setState(() => alertAbove = !alertAbove),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: cBorder),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(alertAbove ? 'Above' : 'Below',
-                      style: const TextStyle(color: cDim, fontSize: 12)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: () {
-                  final v = double.tryParse(alertCtrl.text.trim());
-                  if (v != null && v > 0) {
-                    app.addAlert(v, alertAbove);
-                    alertCtrl.clear();
-                  }
-                },
-                child: const Text('Add'),
-              ),
-            ]),
-            if (app.alerts.isNotEmpty) const SizedBox(height: 8),
-            ...app.alerts.map((a) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(children: [
-                    Icon(
-                        a.triggered
-                            ? Icons.notifications_active
-                            : Icons.notifications_none,
-                        size: 14,
-                        color: a.triggered ? const Color(0xFFF5C242) : cDim),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '${a.above ? 'Above' : 'Below'} ${fmt(a.level)}${a.triggered ? '  -  triggered' : ''}',
-                        style: TextStyle(
-                            color: a.triggered ? const Color(0xFFF5C242) : cDim,
-                            fontSize: 12),
+          const SizedBox(height: 16),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Material(
+                      color: const Color(0xFFDE1557),
+                      borderRadius: BorderRadius.circular(18),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () => setState(() => dir = 'sell'),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'SELL',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                app.bid == null
+                                    ? 'Bid unavailable'
+                                    : fmt(app.bid),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                dir == 'sell' ? 'Selected' : ' ',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    GestureDetector(
-                      onTap: () => app.removeAlert(a.id),
-                      child: const Icon(Icons.delete_outline,
-                          size: 16, color: cDim),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Material(
+                      color: const Color(0xFF2BBB97),
+                      borderRadius: BorderRadius.circular(18),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () => setState(() => dir = 'buy'),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'BUY',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                app.ask == null
+                                    ? 'Ask unavailable'
+                                    : fmt(app.ask),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                dir == 'buy' ? 'Selected' : ' ',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ]),
-                )),
-          ],
-        )),
-        const SizedBox(height: 10),
-        if (app.alertBanner != null)
-          card(Row(children: [
-            const Icon(Icons.notifications_active,
-                color: Color(0xFFF5C242), size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Price alert: XAU/USD ${app.alertBanner!.above ? 'reached' : 'dropped to'} ${fmt(app.alertBanner!.level)}',
-                style: const TextStyle(
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0ECEA),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  app.spread == null ? '--' : fmt(app.spread),
+                  style: const TextStyle(
+                    color: Color(0xFF10182A),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Spread USD/oz · ${fresh ? 'Live quote' : 'Quote stale or unavailable'} · Choose a side, then review the order below',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: cDim, fontSize: 10),
+          ),
+          const SizedBox(height: 10),
+          const SessionsStrip(),
+          const SizedBox(height: 10),
+          const Text(
+            'New order',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '${dir.toUpperCase()} paper order',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Size (oz of gold)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: tpCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Take profit (optional)',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: slCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Stop loss (optional)',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                _riskRow(),
+                if (err.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      err,
+                      style: const TextStyle(color: cRed, fontSize: 12),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: dir == 'buy' ? cGreen : cRed,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: (!fresh || opening)
+                      ? null
+                      : () async {
+                          final q = parseNum(qtyCtrl.text);
+                          if (q == null || q <= 0) {
+                            setState(
+                              () => err = 'Enter a size in oz (like 0.5 or 1).',
+                            );
+                            return;
+                          }
+                          setState(() {
+                            opening = true;
+                            err = '';
+                          });
+                          final warn = app.limitWarning();
+                          if (warn != null && !app.blockOnLimit) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Warning: $warn'),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                          final r = await app.openPaper(
+                            dir,
+                            q,
+                            parseNum(tpCtrl.text),
+                            parseNum(slCtrl.text),
+                          );
+                          if (!mounted) return;
+                          if (r != null) {
+                            setState(() => err = r);
+                          } else {
+                            tpCtrl.clear();
+                            slCtrl.clear();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '${dir.toUpperCase()} opened at ${fmt(app.price)}',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                          setState(() => opening = false);
+                        },
+                  child: Text(
+                    opening
+                        ? 'Opening...'
+                        : '${dir == 'buy' ? 'Buy' : 'Sell'} at live price',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'TP/SL auto-close works only while the app is open.',
+                  style: TextStyle(color: cDim, fontSize: 11),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Price alerts',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: alertCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Alert price',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => setState(() => alertAbove = !alertAbove),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: cBorder),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          alertAbove ? 'Above' : 'Below',
+                          style: const TextStyle(color: cDim, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        final v = double.tryParse(alertCtrl.text.trim());
+                        if (v != null && v > 0) {
+                          app.addAlert(v, alertAbove);
+                          alertCtrl.clear();
+                        }
+                      },
+                      child: const Text('Add'),
+                    ),
+                  ],
+                ),
+                if (app.alerts.isNotEmpty) const SizedBox(height: 8),
+                ...app.alerts.map(
+                  (a) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Icon(
+                          a.triggered
+                              ? Icons.notifications_active
+                              : Icons.notifications_none,
+                          size: 14,
+                          color: a.triggered ? const Color(0xFFF5C242) : cDim,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '${a.above ? 'Above' : 'Below'} ${fmt(a.level)}${a.triggered ? '  -  triggered' : ''}',
+                            style: TextStyle(
+                              color: a.triggered
+                                  ? const Color(0xFFF5C242)
+                                  : cDim,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => app.removeAlert(a.id),
+                          child: const Icon(
+                            Icons.delete_outline,
+                            size: 16,
+                            color: cDim,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (app.alertBanner != null)
+            card(
+              Row(
+                children: [
+                  const Icon(
+                    Icons.notifications_active,
                     color: Color(0xFFF5C242),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Price alert: XAU/USD ${app.alertBanner!.above ? 'reached' : 'dropped to'} ${fmt(app.alertBanner!.level)}',
+                      style: const TextStyle(
+                        color: Color(0xFFF5C242),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: app.dismissAlertBanner,
+                    child: const Icon(Icons.close, color: cDim, size: 18),
+                  ),
+                ],
               ),
             ),
-            GestureDetector(
-              onTap: app.dismissAlertBanner,
-              child: const Icon(Icons.close, color: cDim, size: 18),
-            ),
-          ])),
-        if (!fresh)
-          card(Row(children: [
-            const Icon(Icons.warning_amber, color: Colors.amber, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                app.priceOk
-                    ? 'Price looks stale - check internet before opening or closing.'
-                    : 'Cannot reach the price feed right now. You can still view, but open/close is paused.',
-                style: const TextStyle(color: Colors.amber, fontSize: 12),
+          if (!fresh)
+            card(
+              Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    color: Colors.amber,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      app.priceOk
+                          ? 'Price looks stale - check internet before opening or closing.'
+                          : 'Cannot reach the price feed right now. You can still view, but open/close is paused.',
+                      style: const TextStyle(color: Colors.amber, fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ])),
-        card(Column(children: [
-          Row(children: [
-            const Expanded(
-                child: Text('Daily limits',
-                    style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
-            TextButton.icon(
-              onPressed: () => _editSlippage(context),
-              icon: const Icon(Icons.speed, size: 14, color: cDim),
-              label: Text('Slippage: ${app.slippage.label}',
-                  style: const TextStyle(color: cDim, fontSize: 12)),
+          card(
+            Column(
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Daily limits',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _editSlippage(context),
+                      icon: const Icon(Icons.speed, size: 14, color: cDim),
+                      label: Text(
+                        'Slippage: ${app.slippage.label}',
+                        style: const TextStyle(color: cDim, fontSize: 12),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _editDailyLimits(context),
+                      icon: const Icon(
+                        Icons.tune,
+                        size: 14,
+                        color: Color(0xFFF5C242),
+                      ),
+                      label: const Text(
+                        'Set',
+                        style: TextStyle(
+                          color: Color(0xFFF5C242),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _balRow(
+                        'Trades today',
+                        '${app.tradesToday()}${app.maxTradesDay > 0 ? ' / ${app.maxTradesDay}' : ''}',
+                        cDim,
+                      ),
+                    ),
+                    Expanded(
+                      child: _balRow(
+                        'P/L today',
+                        money(app.realizedToday(), sign: true) +
+                            (app.maxDailyLoss > 0
+                                ? ' / -${fmt(app.maxDailyLoss)}'
+                                : ''),
+                        cls(app.realizedToday()),
+                      ),
+                    ),
+                  ],
+                ),
+                if (app.limitWarning() != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.warning_amber,
+                          color: Colors.amber,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            app.limitWarning()!,
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Block new trades at limit',
+                        style: TextStyle(fontSize: 12, color: cDim),
+                      ),
+                    ),
+                    Switch(
+                      value: app.blockOnLimit,
+                      activeTrackColor: cGreen,
+                      onChanged: (v) =>
+                          setState(() => app.setDailyLimits(block: v)),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            TextButton.icon(
-              onPressed: () => _editDailyLimits(context),
-              icon: const Icon(Icons.tune, size: 14, color: Color(0xFFF5C242)),
-              label: const Text('Set',
-                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
-            ),
-          ]),
-          Row(children: [
-            Expanded(
-                child: _balRow(
-                    'Trades today',
-                    '${app.tradesToday()}${app.maxTradesDay > 0 ? ' / ${app.maxTradesDay}' : ''}',
-                    cDim)),
-            Expanded(
-                child: _balRow(
-                    'P/L today',
-                    money(app.realizedToday(), sign: true) +
-                        (app.maxDailyLoss > 0
-                            ? ' / -${fmt(app.maxDailyLoss)}'
-                            : ''),
-                    cls(app.realizedToday()))),
-          ]),
-          if (app.limitWarning() != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(children: [
-                const Icon(Icons.warning_amber,
-                    color: Colors.amber, size: 16),
-                const SizedBox(width: 6),
-                Expanded(
-                    child: Text(app.limitWarning()!,
-                        style: const TextStyle(
-                            color: Colors.amber, fontSize: 12))),
-              ]),
-            ),
-          Row(children: [
-            const Expanded(
-                child: Text('Block new trades at limit',
-                    style: TextStyle(fontSize: 12, color: cDim))),
-            Switch(
-                value: app.blockOnLimit,
-                activeTrackColor: cGreen,
-                onChanged: (v) => setState(() => app.setDailyLimits(block: v))),
-          ]),
-        ])),
-      ],
+          ),
+        ],
+      ),
     );
   }
 
   Future<void> _editSlippage(BuildContext context) async {
     final customCtrl = TextEditingController(
-        text: app.slippage.custom > 0 ? app.slippage.custom.toString() : '');
+      text: app.slippage.custom > 0 ? app.slippage.custom.toString() : '',
+    );
     String mode = app.slippage.mode;
     final ok = await showDialog<bool>(
       context: context,
@@ -1289,43 +1645,64 @@ class _TradeTabState extends State<TradeTab> {
         builder: (dCtx, setD) => AlertDialog(
           backgroundColor: cCard,
           title: const Text('Slippage', style: TextStyle(fontSize: 16)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
                 'Optional paper-trading slippage. Makes your fills slightly worse, like a real broker. Applies to new fills only.',
-                style: TextStyle(color: cDim, fontSize: 12)),
-            RadioListTile<String>(
-                title: const Text('Slippage: Off', style: TextStyle(fontSize: 14)),
+                style: TextStyle(color: cDim, fontSize: 12),
+              ),
+              RadioListTile<String>(
+                title: const Text(
+                  'Slippage: Off',
+                  style: TextStyle(fontSize: 14),
+                ),
                 dense: true,
                 value: 'off',
                 groupValue: mode,
-                onChanged: (v) => setD(() => mode = v!)),
-            RadioListTile<String>(
-                title: const Text('Slippage: Low (\$0.05)', style: TextStyle(fontSize: 14)),
+                onChanged: (v) => setD(() => mode = v!),
+              ),
+              RadioListTile<String>(
+                title: const Text(
+                  'Slippage: Low (\$0.05)',
+                  style: TextStyle(fontSize: 14),
+                ),
                 dense: true,
                 value: 'low',
                 groupValue: mode,
-                onChanged: (v) => setD(() => mode = v!)),
-            RadioListTile<String>(
-                title: const Text('Slippage: Custom', style: TextStyle(fontSize: 14)),
+                onChanged: (v) => setD(() => mode = v!),
+              ),
+              RadioListTile<String>(
+                title: const Text(
+                  'Slippage: Custom',
+                  style: TextStyle(fontSize: 14),
+                ),
                 dense: true,
                 value: 'custom',
                 groupValue: mode,
-                onChanged: (v) => setD(() => mode = v!)),
-            if (mode == 'custom')
-              TextField(
+                onChanged: (v) => setD(() => mode = v!),
+              ),
+              if (mode == 'custom')
+                TextField(
                   controller: customCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(
-                      labelText: 'Slippage \$ per oz')),
-          ]),
+                    labelText: 'Slippage \$ per oz',
+                  ),
+                ),
+            ],
+          ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dCtx, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(dCtx, true),
-                child: const Text('Save')),
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Save'),
+            ),
           ],
         ),
       ),
@@ -1337,46 +1714,58 @@ class _TradeTabState extends State<TradeTab> {
 
   Future<void> _editDailyLimits(BuildContext context) async {
     final tradesCtrl = TextEditingController(
-        text: app.maxTradesDay > 0 ? app.maxTradesDay.toString() : '');
+      text: app.maxTradesDay > 0 ? app.maxTradesDay.toString() : '',
+    );
     final lossCtrl = TextEditingController(
-        text: app.maxDailyLoss > 0 ? fmt(app.maxDailyLoss) : '');
+      text: app.maxDailyLoss > 0 ? fmt(app.maxDailyLoss) : '',
+    );
     final ok = await showDialog<bool>(
       context: context,
       builder: (dCtx) => AlertDialog(
         backgroundColor: cCard,
         title: const Text('Daily limits', style: TextStyle(fontSize: 16)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
               controller: tradesCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                  labelText: 'Max trades/day (empty = off)')),
-          const SizedBox(height: 8),
-          TextField(
+                labelText: 'Max trades/day (empty = off)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
               controller: lossCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
-                  labelText: 'Max daily loss \$ (empty = off)')),
-        ]),
+                labelText: 'Max daily loss \$ (empty = off)',
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dCtx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dCtx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dCtx, true),
-              child: const Text('Save')),
+            onPressed: () => Navigator.pop(dCtx, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
     if (ok == true) {
       final t = int.tryParse(tradesCtrl.text.trim()) ?? 0;
       final l = double.tryParse(lossCtrl.text.trim()) ?? 0;
-      setState(() =>
-          app.setDailyLimits(trades: t < 0 ? 0 : t, loss: l < 0 ? 0 : l));
+      setState(
+        () => app.setDailyLimits(trades: t < 0 ? 0 : t, loss: l < 0 ? 0 : l),
+      );
     }
   }
-
 
   /// Stage (d): live risk readout for the order being composed.
   /// Shows $ at risk from the stop distance, and a one-tap size that
@@ -1386,67 +1775,85 @@ class _TradeTabState extends State<TradeTab> {
     final qty = parseNum(qtyCtrl.text);
     final sl = parseNum(slCtrl.text);
     if (entry == null) return const SizedBox.shrink();
-    final risk = (qty != null && sl != null)
-        ? (entry - sl).abs() * qty
-        : null;
+    final risk = (qty != null && sl != null) ? (entry - sl).abs() * qty : null;
     final suggested = riskQty(app.balance * 0.01, entry, sl);
-    final pct = risk != null && app.balance > 0 ? risk / app.balance * 100 : null;
+    final pct = risk != null && app.balance > 0
+        ? risk / app.balance * 100
+        : null;
     return Padding(
       padding: const EdgeInsets.only(top: 10),
-      child: Row(children: [
-        Expanded(
-          child: Text(
-            risk == null
-                ? (sl == null
-                    ? 'Add a stop loss to size by risk'
-                    : 'Enter size and stop to see risk')
-                : 'Risk ${money(risk, sign: false)} (${pct!.toStringAsFixed(1)}% of balance)',
-            style: TextStyle(
-                color: risk == null
-                    ? cDim
-                    : (pct! > 2 ? cRed : Colors.amber),
-                fontSize: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              risk == null
+                  ? (sl == null
+                        ? 'Add a stop loss to size by risk'
+                        : 'Enter size and stop to see risk')
+                  : 'Risk ${money(risk, sign: false)} (${pct!.toStringAsFixed(1)}% of balance)',
+              style: TextStyle(
+                color: risk == null ? cDim : (pct! > 2 ? cRed : Colors.amber),
+                fontSize: 12,
+              ),
+            ),
           ),
-        ),
-        if (suggested != null)
-          GestureDetector(
-            onTap: () => setState(
-                () => qtyCtrl.text = suggested.toStringAsFixed(2)),
-            child: Text('1% size: ${suggested.toStringAsFixed(2)} oz',
+          if (suggested != null)
+            GestureDetector(
+              onTap: () =>
+                  setState(() => qtyCtrl.text = suggested.toStringAsFixed(2)),
+              child: Text(
+                '1% size: ${suggested.toStringAsFixed(2)} oz',
                 style: const TextStyle(
-                    color: Color(0xFFF5C242),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-          ),
-      ]),
+                  color: Color(0xFFF5C242),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _balRow(String label, String value, Color color) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: cDim, fontSize: 13)),
-          Text(value,
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: color)),
-        ],
-      );
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: cDim, fontSize: 13)),
+      Text(
+        value,
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
+          color: color,
+        ),
+      ),
+    ],
+  );
 
-  Widget _segBtn(String label, Color color, bool on, VoidCallback tap) => GestureDetector(
+  Widget _segBtn(String label, Color color, bool on, VoidCallback tap) =>
+      GestureDetector(
         onTap: tap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: on ? color.withValues(alpha: 0.2) : cBg,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: on ? color : cBorder, width: on ? 1.5 : 1),
+            border: Border.all(
+              color: on ? color : cBorder,
+              width: on ? 1.5 : 1,
+            ),
           ),
           alignment: Alignment.center,
-          child: Text(label,
-              style: TextStyle(
-                  color: on ? color : cDim, fontWeight: FontWeight.w700, fontSize: 15)),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: on ? color : cDim,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
+          ),
         ),
       );
-
 }
 
 class PositionsTab extends StatefulWidget {
@@ -1473,7 +1880,8 @@ class _PositionsTabState extends State<PositionsTab> {
     final monthStart = DateTime(now.year, now.month);
     return hist.where((t) {
       if (_timeFilter != 'all') {
-        final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')?.toLocal();
+        final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')
+            ?.toLocal();
         if (d == null) return false;
         switch (_timeFilter) {
           case 'today':
@@ -1502,8 +1910,12 @@ class _PositionsTabState extends State<PositionsTab> {
     }).toList();
   }
 
-  Widget _fdrop(String label, String value, Map<String, String> options,
-      String group) {
+  Widget _fdrop(
+    String label,
+    String value,
+    Map<String, String> options,
+    String group,
+  ) {
     return Expanded(
       child: DropdownButtonFormField<String>(
         initialValue: value,
@@ -1511,8 +1923,10 @@ class _PositionsTabState extends State<PositionsTab> {
         decoration: InputDecoration(
           labelText: label,
           labelStyle: const TextStyle(color: cDim, fontSize: 11),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 6,
+          ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6),
             borderSide: const BorderSide(color: Color(0xFF2A3140)),
@@ -1546,95 +1960,128 @@ class _PositionsTabState extends State<PositionsTab> {
   Widget build(BuildContext context) {
     final open = app.positions.where((t) => t['status'] == 'open').toList();
     final hist = app.positions.where((t) => t['status'] == 'closed').toList()
-      ..sort((a, b) => (b['closed_at'] ?? '').toString().compareTo((a['closed_at'] ?? '').toString()));
+      ..sort(
+        (a, b) => (b['closed_at'] ?? '').toString().compareTo(
+          (a['closed_at'] ?? '').toString(),
+        ),
+      );
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-          child: Row(children: [
-            Expanded(
-                child: _tabBtn('Open Positions (${open.length})', !showHistory,
-                    () => setState(() => showHistory = false))),
-            const SizedBox(width: 8),
-            Expanded(
+          child: Row(
+            children: [
+              Expanded(
                 child: _tabBtn(
-                    'History', showHistory, () => setState(() => showHistory = true))),
-          ]),
+                  'Open Positions (${open.length})',
+                  !showHistory,
+                  () => setState(() => showHistory = false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _tabBtn(
+                  'History',
+                  showHistory,
+                  () => setState(() => showHistory = true),
+                ),
+              ),
+            ],
+          ),
         ),
         if (showHistory)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-            child: Column(children: [
-              Row(children: [
-                _fdrop('Time', _timeFilter, const {
-                  'all': 'All',
-                  'today': 'Today',
-                  'yesterday': 'Yesterday',
-                  'week': 'Week',
-                  'month': 'Month',
-                }, 'time'),
-                const SizedBox(width: 8),
-                _fdrop('Result', _resultFilter, const {
-                  'all': 'All',
-                  'win': 'Winning',
-                  'loss': 'Losing',
-                }, 'result'),
-                const SizedBox(width: 8),
-                _fdrop('Side', _dirFilter, const {
-                  'all': 'All',
-                  'buy': 'Buy',
-                  'sell': 'Sell',
-                }, 'dir'),
-              ]),
-            ]),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    _fdrop('Time', _timeFilter, const {
+                      'all': 'All',
+                      'today': 'Today',
+                      'yesterday': 'Yesterday',
+                      'week': 'Week',
+                      'month': 'Month',
+                    }, 'time'),
+                    const SizedBox(width: 8),
+                    _fdrop('Result', _resultFilter, const {
+                      'all': 'All',
+                      'win': 'Winning',
+                      'loss': 'Losing',
+                    }, 'result'),
+                    const SizedBox(width: 8),
+                    _fdrop('Side', _dirFilter, const {
+                      'all': 'All',
+                      'buy': 'Buy',
+                      'sell': 'Sell',
+                    }, 'dir'),
+                  ],
+                ),
+              ],
+            ),
           ),
         // User request: current gold price visible with the positions.
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
-          child: Row(children: [
-            const Text('XAU/USD',
-                style: TextStyle(color: cDim, fontSize: 12)),
-            const SizedBox(width: 8),
-            Text(app.priceOk ? '\$${fmt(app.price)}' : '--',
+          child: Row(
+            children: [
+              const Text(
+                'XAU/USD',
+                style: TextStyle(color: cDim, fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                app.priceOk ? '\$${fmt(app.price)}' : '--',
                 style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: app.priceFresh ? Colors.white : cDim)),
-            const SizedBox(width: 8),
-            if (app.bid != null && app.ask != null)
-              Text('Bid ${fmt(app.bid)} · Ask ${fmt(app.ask)}',
-                  style: const TextStyle(color: cDim, fontSize: 11)),
-          ]),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: app.priceFresh ? Colors.white : cDim,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (app.bid != null && app.ask != null)
+                Text(
+                  'Bid ${fmt(app.bid)} · Ask ${fmt(app.ask)}',
+                  style: const TextStyle(color: cDim, fontSize: 11),
+                ),
+            ],
+          ),
         ),
         Expanded(
-          child: showHistory ? _historyList(_filteredHist(hist)) : _openList(open),
+          child: showHistory
+              ? _historyList(_filteredHist(hist))
+              : _openList(open),
         ),
       ],
     );
   }
 
   Widget _tabBtn(String label, bool on, VoidCallback tap) => GestureDetector(
-        onTap: tap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: on ? cCard : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: on ? cBorder : Colors.transparent),
-          ),
-          alignment: Alignment.center,
-          child: Text(label,
-              style: TextStyle(
-                  color: on ? Colors.white : cDim,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13)),
+    onTap: tap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: on ? cCard : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: on ? cBorder : Colors.transparent),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: on ? Colors.white : cDim,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
         ),
-      );
+      ),
+    ),
+  );
 
   Widget _openList(List<Map<String, dynamic>> open) {
     if (open.isEmpty) {
       return const Center(
-          child: Text('No open positions', style: TextStyle(color: cDim)));
+        child: Text('No open positions', style: TextStyle(color: cDim)),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
@@ -1665,68 +2112,126 @@ class _PositionsTabState extends State<PositionsTab> {
     final sl = app.effectiveLimit(t, 'sl');
     final isClosing = app.closing.contains(id);
     return card(
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        InkWell(
-          onTap: () => setState(() {
-            isExpanded ? app.expanded.remove(id) : app.expanded.add(id);
-          }),
-          child: Row(children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('GOLD',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(buy ? Icons.arrow_upward : Icons.arrow_downward,
-                      size: 13, color: buy ? cGreen : cRed),
-                  const SizedBox(width: 3),
-                  Text('${fmt(qty)} oz  ${buy ? 'BUY' : 'SELL'}',
-                      style: TextStyle(color: buy ? cGreen : cRed, fontSize: 12)),
-                ]),
-              ]),
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () => setState(() {
+              isExpanded ? app.expanded.remove(id) : app.expanded.add(id);
+            }),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'GOLD',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            buy ? Icons.arrow_upward : Icons.arrow_downward,
+                            size: 13,
+                            color: buy ? cGreen : cRed,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            '${fmt(qty)} oz  ${buy ? 'BUY' : 'SELL'}',
+                            style: TextStyle(
+                              color: buy ? cGreen : cRed,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  money(live, sign: true),
+                  style: TextStyle(
+                    color: cls(live),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                Icon(
+                  isExpanded ? Icons.expand_less : Icons.expand_more,
+                  color: cDim,
+                ),
+              ],
             ),
-            Text(money(live, sign: true),
-                style: TextStyle(
-                    color: cls(live), fontWeight: FontWeight.w700, fontSize: 16)),
-            Icon(isExpanded ? Icons.expand_less : Icons.expand_more, color: cDim),
-          ]),
-        ),
-        const SizedBox(height: 10),
-        FilledButton(
-          style: FilledButton.styleFrom(
+          ),
+          const SizedBox(height: 10),
+          FilledButton(
+            style: FilledButton.styleFrom(
               backgroundColor: cRed,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12)),
-          onPressed: (!app.priceFresh || isClosing) ? null : () => _confirmClose(t),
-          child: Text(isClosing ? 'Closing...' : 'Close Trade: ${money(live, sign: true)}'),
-        ),
-        const SizedBox(height: 10),
-        TradeExplanationCard(data: TradeExplanation(entry:(t['entry'] as num).toDouble(),qty:qty,buy:buy,stop:sl,target:tp,spread:app.spread),fresh:app.priceFresh),
-        if (isExpanded) ...[
-          const Divider(color: cBorder, height: 24),
-          _row('Order ID', id),
-          _row('Instrument', 'GOLD'),
-          _row('Amount', '${fmt(qty)} Troy Ounce${qty == 1 ? '' : 's'}'),
-          _row('Direction', buy ? 'BUY' : 'SELL'),
-          _row('Open Price', fmt((t['entry'] as num).toDouble())),
-          _row('Current Price', app.priceOk ? fmt(app.price) : 'Unavailable'),
-          _row('PnL', money(live, sign: true), color: cls(live)),
-          _row('Price Move (%)', () {
-            final m = app.movePct(t);
-            return m == null ? '-' : '${m > 0 ? '+' : ''}${m.toStringAsFixed(3)}%';
-          }()),
-          _row('Time Opened', _fmtTime(t['opened_at']?.toString())),
-          _row('Take Profit / Stop Loss',
-              '${tp == null ? '-' : fmt(tp)} / ${sl == null ? '-' : fmt(sl)}'),
-          const SizedBox(height: 8),
-          _limitSwitch(t, 'tp', 'Take Profit', tp),
-          _limitSwitch(t, 'sl', 'Stop Loss', sl),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onPressed: (!app.priceFresh || isClosing)
+                ? null
+                : () => _confirmClose(t),
+            child: Text(
+              isClosing
+                  ? 'Closing...'
+                  : 'Close Trade: ${money(live, sign: true)}',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TradeExplanationCard(
+            data: TradeExplanation(
+              entry: (t['entry'] as num).toDouble(),
+              qty: qty,
+              buy: buy,
+              stop: sl,
+              target: tp,
+              spread: app.spread,
+            ),
+            fresh: app.priceFresh,
+          ),
+          if (isExpanded) ...[
+            const Divider(color: cBorder, height: 24),
+            _row('Order ID', id),
+            _row('Instrument', 'GOLD'),
+            _row('Amount', '${fmt(qty)} Troy Ounce${qty == 1 ? '' : 's'}'),
+            _row('Direction', buy ? 'BUY' : 'SELL'),
+            _row('Open Price', fmt((t['entry'] as num).toDouble())),
+            _row('Current Price', app.priceOk ? fmt(app.price) : 'Unavailable'),
+            _row('PnL', money(live, sign: true), color: cls(live)),
+            _row('Price Move (%)', () {
+              final m = app.movePct(t);
+              return m == null
+                  ? '-'
+                  : '${m > 0 ? '+' : ''}${m.toStringAsFixed(3)}%';
+            }()),
+            _row('Time Opened', _fmtTime(t['opened_at']?.toString())),
+            _row(
+              'Take Profit / Stop Loss',
+              '${tp == null ? '-' : fmt(tp)} / ${sl == null ? '-' : fmt(sl)}',
+            ),
+            const SizedBox(height: 8),
+            _limitSwitch(t, 'tp', 'Take Profit', tp),
+            _limitSwitch(t, 'sl', 'Stop Loss', sl),
+          ],
         ],
-      ]),
+      ),
       padding: const EdgeInsets.all(14),
     );
   }
 
-  Widget _limitSwitch(Map<String, dynamic> t, String key, String label, double? v) {
+  Widget _limitSwitch(
+    Map<String, dynamic> t,
+    String key,
+    String label,
+    double? v,
+  ) {
     final on = v != null;
     return InkWell(
       onTap: () async {
@@ -1738,35 +2243,47 @@ class _PositionsTabState extends State<PositionsTab> {
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: const TextStyle(fontSize: 14)),
-              Text(
-                  on
-                      ? '${fmt(v)}  ${money(pnlAtLevel(t, v), sign: true)}'
-                      : 'Off',
-                  style: TextStyle(
-                      color: on ? cls(pnlAtLevel(t, v)) : cDim, fontSize: 12)),
-            ]),
-          ),
-          Switch(
-            value: on,
-            activeTrackColor: cGreen,
-            onChanged: (nv) async {
-              if (!nv) {
-                setState(() => app.setLimit(t['id'].toString(), key, null));
-              } else {
-                await _askLimit(t, key, label);
-              }
-            },
-          ),
-        ]),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 14)),
+                  Text(
+                    on
+                        ? '${fmt(v)}  ${money(pnlAtLevel(t, v), sign: true)}'
+                        : 'Off',
+                    style: TextStyle(
+                      color: on ? cls(pnlAtLevel(t, v)) : cDim,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: on,
+              activeTrackColor: cGreen,
+              onChanged: (nv) async {
+                if (!nv) {
+                  setState(() => app.setLimit(t['id'].toString(), key, null));
+                } else {
+                  await _askLimit(t, key, label);
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _askLimit(Map<String, dynamic> t, String key, String label) async {
+  Future<void> _askLimit(
+    Map<String, dynamic> t,
+    String key,
+    String label,
+  ) async {
     final buy = t['direction'] == 'buy';
     final existing = t[key];
     // User request: prefill with the live price so he nudges from there
@@ -1783,48 +2300,69 @@ class _PositionsTabState extends State<PositionsTab> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
           backgroundColor: cCard,
-          title: Text('$label price (\$ per troy ounce)',
-              style: const TextStyle(fontSize: 16)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            if (open != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Open: ${fmt(open)}',
-                      style: const TextStyle(color: cDim, fontSize: 12)),
+          title: Text(
+            '$label price (\$ per troy ounce)',
+            style: const TextStyle(fontSize: 16),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (open != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Open: ${fmt(open)}',
+                      style: const TextStyle(color: cDim, fontSize: 12),
+                    ),
+                  ),
                 ),
-              ),
-            TextField(
+              TextField(
                 controller: ctrl,
                 autofocus: true,
                 onChanged: (_) => setD(() {}),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration()),
-            Builder(builder: (_) {
-              final v = double.tryParse(ctrl.text.trim());
-              final pnl = v == null ? null : pnlAtLevel(t, v);
-              if (pnl == null) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('$label: ${money(pnl, sign: true)}',
-                      style: TextStyle(
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(),
+              ),
+              Builder(
+                builder: (_) {
+                  final v = double.tryParse(ctrl.text.trim());
+                  final pnl = v == null ? null : pnlAtLevel(t, v);
+                  if (pnl == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '$label: ${money(pnl, sign: true)}',
+                        style: TextStyle(
                           color: cls(pnl),
                           fontSize: 13,
-                          fontWeight: FontWeight.w700)),
-                ),
-              );
-            }),
-            if (error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(error!, style: const TextStyle(color: cRed, fontSize: 12)),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-          ]),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    error!,
+                    style: const TextStyle(color: cRed, fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 final v = double.tryParse(ctrl.text.trim());
@@ -1835,8 +2373,10 @@ class _PositionsTabState extends State<PositionsTab> {
                 final above = key == 'tp' ? buy : !buy;
                 if (app.priceFresh &&
                     (above ? v <= app.price! : v >= app.price!)) {
-                  setD(() => error =
-                      'Choose a level ${above ? 'above' : 'below'} the current price');
+                  setD(
+                    () => error =
+                        'Choose a level ${above ? 'above' : 'below'} the current price',
+                  );
                   return;
                 }
                 Navigator.pop(ctx, v);
@@ -1851,22 +2391,25 @@ class _PositionsTabState extends State<PositionsTab> {
   }
 
   Widget _row(String k, String v, {Color? color}) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(k, style: const TextStyle(color: cDim, fontSize: 13)),
-            Flexible(
-              child: Text(v,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: color ?? Colors.white)),
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(k, style: const TextStyle(color: cDim, fontSize: 13)),
+        Flexible(
+          child: Text(
+            v,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color ?? Colors.white,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   String _fmtTime(String? iso) {
     final d = DateTime.tryParse(iso ?? '')?.toLocal();
@@ -1880,13 +2423,19 @@ class _PositionsTabState extends State<PositionsTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: cCard,
-        title: Text('Close this ${t['direction'].toString().toUpperCase()} at the live price?'),
+        title: Text(
+          'Close this ${t['direction'].toString().toUpperCase()} at the live price?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: cRed),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Close')),
+            style: FilledButton.styleFrom(backgroundColor: cRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Close'),
+          ),
         ],
       ),
     );
@@ -1894,18 +2443,26 @@ class _PositionsTabState extends State<PositionsTab> {
       final r = await app.closePaper(t);
       if (!mounted) return;
       if (r != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(r.startsWith('closed')
-                ? 'Closed at ${fmt(app.price)}${r.contains(':') ? ' · ${r.split(':')[1]}' : ''}'
-                : r),
-            duration: const Duration(seconds: 2)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              r.startsWith('closed')
+                  ? 'Closed at ${fmt(app.price)}${r.contains(':') ? ' · ${r.split(':')[1]}' : ''}'
+                  : r,
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     }
   }
 
   /// Stage (e): journal note editor for a closed paper trade.
   Future<void> _editNote(
-      BuildContext context, Map<String, dynamic> t, String current) async {
+    BuildContext context,
+    Map<String, dynamic> t,
+    String current,
+  ) async {
     final ctrl = TextEditingController(text: current);
     final saved = await showDialog<bool>(
       context: context,
@@ -1916,15 +2473,18 @@ class _PositionsTabState extends State<PositionsTab> {
           controller: ctrl,
           maxLines: 3,
           decoration: const InputDecoration(
-              hintText: 'Why did you take this trade? What happened?'),
+            hintText: 'Why did you take this trade? What happened?',
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dCtx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dCtx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dCtx, true),
-              child: const Text('Save')),
+            onPressed: () => Navigator.pop(dCtx, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -1936,7 +2496,8 @@ class _PositionsTabState extends State<PositionsTab> {
   Widget _historyList(List<Map<String, dynamic>> hist) {
     if (hist.isEmpty) {
       return const Center(
-          child: Text('No closed trades match', style: TextStyle(color: cDim)));
+        child: Text('No closed trades match', style: TextStyle(color: cDim)),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
@@ -1945,96 +2506,148 @@ class _PositionsTabState extends State<PositionsTab> {
         final t = hist[i];
         final buy = t['direction'] == 'buy';
         final pnl = t['pnl'] == null ? null : (t['pnl'] as num).toDouble();
-        final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')?.toLocal();
+        final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')
+            ?.toLocal();
         final tid = t['id'].toString();
         final isExp = _histExpanded.contains(tid);
         // User request: collapsed dropdown rows - one summary line each,
         // tap the chevron to open the full details.
-        return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          InkWell(
-            onTap: () => setState(() =>
-                isExp ? _histExpanded.remove(tid) : _histExpanded.add(tid)),
-            child: Row(children: [
-              _pill(buy ? 'BUY' : 'SELL', buy),
-              const SizedBox(width: 8),
-              Text('${fmt((t['qty'] as num).toDouble())} oz',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  d == null
-                      ? ''
-                      : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
-                  style: const TextStyle(color: cDim, fontSize: 12),
+        return card(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: () => setState(
+                  () => isExp
+                      ? _histExpanded.remove(tid)
+                      : _histExpanded.add(tid),
+                ),
+                child: Row(
+                  children: [
+                    _pill(buy ? 'BUY' : 'SELL', buy),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${fmt((t['qty'] as num).toDouble())} oz',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        d == null
+                            ? ''
+                            : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(color: cDim, fontSize: 12),
+                      ),
+                    ),
+                    Text(
+                      money(pnl, sign: true),
+                      style: TextStyle(
+                        color: cls(pnl),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Icon(
+                      isExp ? Icons.expand_less : Icons.expand_more,
+                      color: cDim,
+                    ),
+                  ],
                 ),
               ),
-              Text(money(pnl, sign: true),
-                  style:
-                      TextStyle(color: cls(pnl), fontWeight: FontWeight.w700)),
-              Icon(isExp ? Icons.expand_less : Icons.expand_more, color: cDim),
-            ]),
-          ),
-          if (isExp) ...[
-            const SizedBox(height: 8),
-            TradeExplanationCard(data:TradeExplanation(entry:(t['entry'] as num).toDouble(),qty:(t['qty'] as num).toDouble(),buy:buy,stop:(t['sl'] as num?)?.toDouble(),target:(t['tp'] as num?)?.toDouble()),fresh:false,historical:true),
-            const SizedBox(height: 6),
-            Text(
-              'Entry ${fmt((t['entry'] as num).toDouble())} → Exit ${t['exit'] == null ? '-' : fmt((t['exit'] as num).toDouble())}'
-              '${t['reason'] != null && t['reason'].toString().isNotEmpty ? ' · ${t['reason']}' : ''}\n'
-              '${d == null ? '' : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'}',
-              style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
-            ),
-          ],
-          if (isExp)
-            Builder(builder: (ctx2) {
-            final note = app.tradeNotes[t['id'].toString()] ?? '';
-            return GestureDetector(
-              onTap: () => _editNote(ctx2, t, note),
-              child: Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Row(children: [
-                  const Icon(Icons.edit_note, size: 14, color: cDim),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      note.isEmpty ? 'Add a journal note' : note,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: note.isEmpty ? cDim : Colors.white70,
-                          fontSize: 11,
-                          fontStyle: note.isEmpty
-                              ? FontStyle.italic
-                              : FontStyle.normal),
-                    ),
+              if (isExp) ...[
+                const SizedBox(height: 8),
+                TradeExplanationCard(
+                  data: TradeExplanation(
+                    entry: (t['entry'] as num).toDouble(),
+                    qty: (t['qty'] as num).toDouble(),
+                    buy: buy,
+                    stop: (t['sl'] as num?)?.toDouble(),
+                    target: (t['tp'] as num?)?.toDouble(),
                   ),
-                ]),
-              ),
-            );
-          }),
-        ]));
+                  fresh: false,
+                  historical: true,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Entry ${fmt((t['entry'] as num).toDouble())} → Exit ${t['exit'] == null ? '-' : fmt((t['exit'] as num).toDouble())}'
+                  '${t['reason'] != null && t['reason'].toString().isNotEmpty ? ' · ${t['reason']}' : ''}\n'
+                  '${d == null ? '' : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'}',
+                  style: const TextStyle(
+                    color: cDim,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              if (isExp)
+                Builder(
+                  builder: (ctx2) {
+                    final note = app.tradeNotes[t['id'].toString()] ?? '';
+                    return GestureDetector(
+                      onTap: () => _editNote(ctx2, t, note),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.edit_note, size: 14, color: cDim),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                note.isEmpty ? 'Add a journal note' : note,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: note.isEmpty ? cDim : Colors.white70,
+                                  fontSize: 11,
+                                  fontStyle: note.isEmpty
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
       },
     );
   }
 
   String _month(int m) => const [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][m - 1];
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][m - 1];
 }
 
 Widget _pill(String label, bool buy) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: (buy ? cGreen : cRed).withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              color: buy ? cGreen : cRed,
-              fontSize: 11,
-              fontWeight: FontWeight.bold)),
-    );
+  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+  decoration: BoxDecoration(
+    color: (buy ? cGreen : cRed).withValues(alpha: 0.15),
+    borderRadius: BorderRadius.circular(6),
+  ),
+  child: Text(
+    label,
+    style: TextStyle(
+      color: buy ? cGreen : cRed,
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+    ),
+  ),
+);
 
 class AddTab extends StatefulWidget {
   final AppState app;
@@ -2101,7 +2714,8 @@ class _AddTabState extends State<AddTab> {
       tpCtrl.text = t['tp']?.toString() ?? '';
       slCtrl.text = t['sl']?.toString() ?? '';
       noteCtrl.text = t['note']?.toString() ?? '';
-      when = DateTime.tryParse(t['traded_at']?.toString() ?? '')?.toLocal() ??
+      when =
+          DateTime.tryParse(t['traded_at']?.toString() ?? '')?.toLocal() ??
           DateTime.now();
       err = '';
     });
@@ -2114,126 +2728,215 @@ class _AddTabState extends State<AddTab> {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        Text(editingId.isEmpty ? 'Add XM trade' : 'Edit trade',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        Text(
+          editingId.isEmpty ? 'Add XM trade' : 'Edit trade',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 10),
-        card(Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Expanded(
-                child: _seg('Buy', cGreen, dir == 'buy',
-                    () => setState(() { dir = 'buy'; autoPnl(); }))),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _seg('Sell', cRed, dir == 'sell',
-                    () => setState(() { dir = 'sell'; autoPnl(); }))),
-          ]),
-          const SizedBox(height: 10),
-          TextField(
-              controller: instrumentCtrl,
-              decoration: const InputDecoration(labelText: 'Instrument')),
-          const SizedBox(height: 10),
-          Row(children: [
-            Expanded(
-                child: TextField(
-                    controller: entryCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (_) => autoPnl(),
-                    decoration: const InputDecoration(labelText: 'Entry'))),
-            const SizedBox(width: 10),
-            Expanded(
-                child: TextField(
-                    controller: exitCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (_) => autoPnl(),
-                    decoration: const InputDecoration(labelText: 'Exit (optional)'))),
-          ]),
-          const SizedBox(height: 10),
-          TextField(
-              controller: pnlCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-              onChanged: (v) => setState(() => pnlManual = v.isNotEmpty),
-              decoration: const InputDecoration(labelText: 'PnL \$ (auto)')),
-          const SizedBox(height: 10),
-          Row(children: [
-            Expanded(
-                child: TextField(
-                    controller: tpCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'TP (optional)'))),
-            const SizedBox(width: 10),
-            Expanded(
-                child: TextField(
-                    controller: slCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'SL (optional)'))),
-          ]),
-          const SizedBox(height: 10),
-          TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(labelText: 'Note (optional)')),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: cBorder),
-                padding: const EdgeInsets.symmetric(vertical: 12)),
-            icon: const Icon(Icons.schedule, color: cDim, size: 18),
-            label: Text(
-              '${when.day}/${when.month}/${when.year} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}',
-              style: const TextStyle(color: Colors.white),
-            ),
-            onPressed: () async {
-              final d = await showDatePicker(
-                  context: context,
-                  initialDate: when,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now().add(const Duration(days: 1)));
-              if (d == null || !mounted) return;
-              final tm = await showTimePicker(
-                  context: context, initialTime: TimeOfDay.fromDateTime(when));
-              if (tm == null) return;
-              setState(() =>
-                  when = DateTime(d.year, d.month, d.day, tm.hour, tm.minute));
-            },
-          ),
-          if (err.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(err, style: const TextStyle(color: cRed, fontSize: 12)),
-            ),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                    backgroundColor: cGreen,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 13)),
-                onPressed: saving ? null : _save,
-                child: Text(saving
-                    ? 'Saving...'
-                    : (editingId.isEmpty ? 'Save trade' : 'Update trade')),
+        card(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _seg(
+                      'Buy',
+                      cGreen,
+                      dir == 'buy',
+                      () => setState(() {
+                        dir = 'buy';
+                        autoPnl();
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _seg(
+                      'Sell',
+                      cRed,
+                      dir == 'sell',
+                      () => setState(() {
+                        dir = 'sell';
+                        autoPnl();
+                      }),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            if (editingId.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: cBorder),
-                      padding: const EdgeInsets.symmetric(vertical: 13)),
-                  onPressed: resetForm,
-                  child: const Text('Cancel', style: TextStyle(color: cDim))),
+              const SizedBox(height: 10),
+              TextField(
+                controller: instrumentCtrl,
+                decoration: const InputDecoration(labelText: 'Instrument'),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: entryCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => autoPnl(),
+                      decoration: const InputDecoration(labelText: 'Entry'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: exitCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => autoPnl(),
+                      decoration: const InputDecoration(
+                        labelText: 'Exit (optional)',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: pnlCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                onChanged: (v) => setState(() => pnlManual = v.isNotEmpty),
+                decoration: const InputDecoration(labelText: 'PnL \$ (auto)'),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: tpCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'TP (optional)',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: slCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'SL (optional)',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'Note (optional)'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: cBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                icon: const Icon(Icons.schedule, color: cDim, size: 18),
+                label: Text(
+                  '${when.day}/${when.month}/${when.year} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onPressed: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: when,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now().add(const Duration(days: 1)),
+                  );
+                  if (d == null || !mounted) return;
+                  final tm = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.fromDateTime(when),
+                  );
+                  if (tm == null) return;
+                  setState(
+                    () => when = DateTime(
+                      d.year,
+                      d.month,
+                      d.day,
+                      tm.hour,
+                      tm.minute,
+                    ),
+                  );
+                },
+              ),
+              if (err.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    err,
+                    style: const TextStyle(color: cRed, fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: cGreen,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      onPressed: saving ? null : _save,
+                      child: Text(
+                        saving
+                            ? 'Saving...'
+                            : (editingId.isEmpty
+                                  ? 'Save trade'
+                                  : 'Update trade'),
+                      ),
+                    ),
+                  ),
+                  if (editingId.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: cBorder),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      onPressed: resetForm,
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: cDim),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ],
-          ]),
-        ])),
+          ),
+        ),
         const SizedBox(height: 6),
-        const Text('Logged trades',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        const Text(
+          'Logged trades',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
         if (app.trades.isEmpty)
           const Padding(
             padding: EdgeInsets.all(20),
             child: Center(
-                child: Text('No trades logged yet', style: TextStyle(color: cDim))),
+              child: Text(
+                'No trades logged yet',
+                style: TextStyle(color: cDim),
+              ),
+            ),
           )
         else
           ...app.trades.map((t) => _tradeTile(t)),
@@ -2241,60 +2944,94 @@ class _AddTabState extends State<AddTab> {
     );
   }
 
-  Widget _seg(String label, Color color, bool on, VoidCallback tap) => GestureDetector(
-        onTap: tap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 11),
-          decoration: BoxDecoration(
-            color: on ? color.withValues(alpha: 0.2) : cBg,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: on ? color : cBorder, width: on ? 1.5 : 1),
-          ),
-          alignment: Alignment.center,
-          child: Text(label,
-              style: TextStyle(color: on ? color : cDim, fontWeight: FontWeight.w700)),
-        ),
-      );
+  Widget _seg(
+    String label,
+    Color color,
+    bool on,
+    VoidCallback tap,
+  ) => GestureDetector(
+    onTap: tap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      decoration: BoxDecoration(
+        color: on ? color.withValues(alpha: 0.2) : cBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: on ? color : cBorder, width: on ? 1.5 : 1),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(color: on ? color : cDim, fontWeight: FontWeight.w700),
+      ),
+    ),
+  );
 
   Widget _tradeTile(Map<String, dynamic> t) {
     final buy = t['direction'] == 'buy';
     final pnl = t['pnl'] == null ? null : (t['pnl'] as num).toDouble();
     final d = DateTime.tryParse(t['traded_at']?.toString() ?? '')?.toLocal();
-    return card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Row(children: [
-          _pill(buy ? 'BUY' : 'SELL', buy),
-          const SizedBox(width: 8),
-          Text(t['instrument']?.toString() ?? 'XAU/USD',
-              style: const TextStyle(fontWeight: FontWeight.w700)),
-        ]),
-        Text(pnl == null ? 'open' : money(pnl, sign: true),
-            style: TextStyle(color: cls(pnl), fontWeight: FontWeight.w700)),
-      ]),
-      const SizedBox(height: 6),
-      Text(
-        'Entry ${t['entry'] ?? '-'}'
-        '${t['exit'] != null ? ' → Exit ${t['exit']}' : ''}'
-        '${t['tp'] != null ? ' · TP ${t['tp']}' : ''}'
-        '${t['sl'] != null ? ' · SL ${t['sl']}' : ''}'
-        '${d != null ? '\n${d.day}/${d.month} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}' : ''}',
-        style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
+    return card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  _pill(buy ? 'BUY' : 'SELL', buy),
+                  const SizedBox(width: 8),
+                  Text(
+                    t['instrument']?.toString() ?? 'XAU/USD',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              Text(
+                pnl == null ? 'open' : money(pnl, sign: true),
+                style: TextStyle(color: cls(pnl), fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Entry ${t['entry'] ?? '-'}'
+            '${t['exit'] != null ? ' → Exit ${t['exit']}' : ''}'
+            '${t['tp'] != null ? ' · TP ${t['tp']}' : ''}'
+            '${t['sl'] != null ? ' · SL ${t['sl']}' : ''}'
+            '${d != null ? '\n${d.day}/${d.month} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}' : ''}',
+            style: const TextStyle(color: cDim, fontSize: 12, height: 1.4),
+          ),
+          if (t['note'] != null && t['note'].toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                t['note'].toString(),
+                style: const TextStyle(fontSize: 12, color: cDim),
+              ),
+            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => editTrade(t),
+                child: const Text(
+                  'Edit',
+                  style: TextStyle(color: cDim, fontSize: 12),
+                ),
+              ),
+              TextButton(
+                onPressed: () => _del(t),
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(color: cRed, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-      if (t['note'] != null && t['note'].toString().isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(t['note'].toString(),
-              style: const TextStyle(fontSize: 12, color: cDim)),
-        ),
-      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-        TextButton(
-            onPressed: () => editTrade(t),
-            child: const Text('Edit', style: TextStyle(color: cDim, fontSize: 12))),
-        TextButton(
-            onPressed: () => _del(t),
-            child: const Text('Delete', style: TextStyle(color: cRed, fontSize: 12))),
-      ]),
-    ]));
+    );
   }
 
   Future<void> _save() async {
@@ -2337,9 +3074,12 @@ class _AddTabState extends State<AddTab> {
       final wasEdit = editingId.isNotEmpty;
       resetForm();
       setState(() => saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text(wasEdit ? 'Trade updated' : 'Trade saved'),
-          duration: const Duration(seconds: 2)));
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -2350,19 +3090,27 @@ class _AddTabState extends State<AddTab> {
         backgroundColor: cCard,
         title: const Text('Delete this trade?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: cRed),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete')),
+            style: FilledButton.styleFrom(backgroundColor: cRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
     if (ok == true) {
       final r = await app.deleteTrade(t);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(r ?? 'Deleted'), duration: const Duration(seconds: 2)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(r ?? 'Deleted'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
       if (editingId == t['id'].toString()) resetForm();
     }
   }
@@ -2382,98 +3130,181 @@ class StatsTab extends StatelessWidget {
     final avgLoss = avgOf(done.where((x) => x < 0));
     final mdd = maxDrawdown(app.starting, done);
     final streak = currentStreak(done);
-    final risk = openRisk(app.positions
-        .where((t) => t['status'] == 'open')
-        .map((t) => (
+    final risk = openRisk(
+      app.positions
+          .where((t) => t['status'] == 'open')
+          .map(
+            (t) => (
               entry: (t['entry'] as num).toDouble(),
               qty: (t['qty'] as num).toDouble(),
               stop: (app.effectiveLimit(t, 'sl'))?.toDouble(),
-            )));
-    final count = app.trades.length +
+            ),
+          ),
+    );
+    final count =
+        app.trades.length +
         app.positions.where((t) => t['status'] == 'closed').length;
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        card(Column(children: [
-          Row(children: [
-            Expanded(
-                child: _stat('Paper balance', money(app.balance),
-                    cls(app.balance - app.starting))),
-            TextButton.icon(
-              onPressed: () => _editBalance(context),
-              icon: const Icon(Icons.edit, size: 14, color: Color(0xFFF5C242)),
-              label: const Text('Edit balance',
-                  style: TextStyle(color: Color(0xFFF5C242), fontSize: 12)),
-            ),
-          ]),
-          Row(children: [
-            Expanded(child: _stat('Starting', money(app.starting), cDim)),
-            TextButton(
-              onPressed: () => _editStarting(context),
-              child: const Text('Edit',
-                  style: TextStyle(color: cDim, fontSize: 12)),
-            ),
-          ]),
-          _stat('Open PnL', app.priceOk ? money(app.floatPnl(), sign: true) : '-',
-              cls(app.floatPnl())),
-        ])),
-        card(Column(children: [
-          _stat('Total PnL (closed)', done.isEmpty ? '-' : '\$${fmt(total, sign: true)}',
-              done.isEmpty ? cDim : cls(total)),
-          _stat('Win rate', done.isEmpty ? '-' : '${(wins / done.length * 100).round()}%',
-              cDim),
-          _stat('Trades', '$count', cDim),
-          _stat('Best', done.isEmpty ? '-' : '\$${fmt(done.reduce(math.max), sign: true)}',
-              done.isEmpty ? cDim : cls(done.reduce(math.max))),
-          _stat('Worst', done.isEmpty ? '-' : '\$${fmt(done.reduce(math.min), sign: true)}',
-              done.isEmpty ? cDim : cls(done.reduce(math.min))),
-          _stat('Avg', done.isEmpty ? '-' : '\$${fmt(total / done.length, sign: true)}',
-              done.isEmpty ? cDim : cls(total)),
-          _stat('Profit factor', pf == null ? '-' : pf.toStringAsFixed(2), cDim),
-          _stat('Avg win', avgWin == null ? '-' : '\$${fmt(avgWin, sign: true)}',
-              avgWin == null ? cDim : cls(avgWin)),
-          _stat('Avg loss', avgLoss == null ? '-' : '\$${fmt(avgLoss, sign: true)}',
-              avgLoss == null ? cDim : cls(avgLoss)),
-          _stat('Max drawdown', done.isEmpty ? '-' : '-\$${fmt(mdd)}',
-              done.isEmpty ? cDim : (mdd > 0 ? cRed : cDim)),
-          _stat(
-              'Streak',
-              streak == 0
-                  ? '-'
-                  : streak > 0
-                      ? '$streak wins'
-                      : '${-streak} losses',
-              streak == 0
-                  ? cDim
-                  : streak > 0
-                      ? cGreen
-                      : cRed),
-          _stat('Open risk', risk == 0 ? '-' : '-\$${fmt(risk)}',
-              risk == 0 ? cDim : Colors.amber),
-        ])),
-        const Text('Equity curve',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        card(
+          Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _stat(
+                      'Paper balance',
+                      money(app.balance),
+                      cls(app.balance - app.starting),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _editBalance(context),
+                    icon: const Icon(
+                      Icons.edit,
+                      size: 14,
+                      color: Color(0xFFF5C242),
+                    ),
+                    label: const Text(
+                      'Edit balance',
+                      style: TextStyle(color: Color(0xFFF5C242), fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(child: _stat('Starting', money(app.starting), cDim)),
+                  TextButton(
+                    onPressed: () => _editStarting(context),
+                    child: const Text(
+                      'Edit',
+                      style: TextStyle(color: cDim, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              _stat(
+                'Open PnL',
+                app.priceOk ? money(app.floatPnl(), sign: true) : '-',
+                cls(app.floatPnl()),
+              ),
+            ],
+          ),
+        ),
+        card(
+          Column(
+            children: [
+              _stat(
+                'Total PnL (closed)',
+                done.isEmpty ? '-' : '\$${fmt(total, sign: true)}',
+                done.isEmpty ? cDim : cls(total),
+              ),
+              _stat(
+                'Win rate',
+                done.isEmpty ? '-' : '${(wins / done.length * 100).round()}%',
+                cDim,
+              ),
+              _stat('Trades', '$count', cDim),
+              _stat(
+                'Best',
+                done.isEmpty
+                    ? '-'
+                    : '\$${fmt(done.reduce(math.max), sign: true)}',
+                done.isEmpty ? cDim : cls(done.reduce(math.max)),
+              ),
+              _stat(
+                'Worst',
+                done.isEmpty
+                    ? '-'
+                    : '\$${fmt(done.reduce(math.min), sign: true)}',
+                done.isEmpty ? cDim : cls(done.reduce(math.min)),
+              ),
+              _stat(
+                'Avg',
+                done.isEmpty
+                    ? '-'
+                    : '\$${fmt(total / done.length, sign: true)}',
+                done.isEmpty ? cDim : cls(total),
+              ),
+              _stat(
+                'Profit factor',
+                pf == null ? '-' : pf.toStringAsFixed(2),
+                cDim,
+              ),
+              _stat(
+                'Avg win',
+                avgWin == null ? '-' : '\$${fmt(avgWin, sign: true)}',
+                avgWin == null ? cDim : cls(avgWin),
+              ),
+              _stat(
+                'Avg loss',
+                avgLoss == null ? '-' : '\$${fmt(avgLoss, sign: true)}',
+                avgLoss == null ? cDim : cls(avgLoss),
+              ),
+              _stat(
+                'Max drawdown',
+                done.isEmpty ? '-' : '-\$${fmt(mdd)}',
+                done.isEmpty ? cDim : (mdd > 0 ? cRed : cDim),
+              ),
+              _stat(
+                'Streak',
+                streak == 0
+                    ? '-'
+                    : streak > 0
+                    ? '$streak wins'
+                    : '${-streak} losses',
+                streak == 0
+                    ? cDim
+                    : streak > 0
+                    ? cGreen
+                    : cRed,
+              ),
+              _stat(
+                'Open risk',
+                risk == 0 ? '-' : '-\$${fmt(risk)}',
+                risk == 0 ? cDim : Colors.amber,
+              ),
+            ],
+          ),
+        ),
+        const Text(
+          'Equity curve',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 10),
-        card(app.allClosed().isEmpty
-            ? const Padding(
-                padding: EdgeInsets.all(30),
-                child: Center(
-                    child: Text('Close a trade to see the chart',
-                        style: TextStyle(color: cDim))),
-              )
-            : SizedBox(
-                height: 200,
-                child: CustomPaint(
-                  painter: EquityPainter(app.allClosed().map((t) => t.pnl).toList()),
-                  size: Size.infinite,
+        card(
+          app.allClosed().isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(30),
+                  child: Center(
+                    child: Text(
+                      'Close a trade to see the chart',
+                      style: TextStyle(color: cDim),
+                    ),
+                  ),
+                )
+              : SizedBox(
+                  height: 200,
+                  child: CustomPaint(
+                    painter: EquityPainter(
+                      app.allClosed().map((t) => t.pnl).toList(),
+                    ),
+                    size: Size.infinite,
+                  ),
                 ),
-              )),
+        ),
         OutlinedButton(
           style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: cRed),
-              padding: const EdgeInsets.symmetric(vertical: 12)),
+            side: const BorderSide(color: cRed),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
           onPressed: () => _reset(context),
-          child: const Text('Reset paper account', style: TextStyle(color: cRed)),
+          child: const Text(
+            'Reset paper account',
+            style: TextStyle(color: cRed),
+          ),
         ),
       ],
     );
@@ -2487,16 +3318,18 @@ class StatsTab extends StatelessWidget {
         backgroundColor: cCard,
         title: const Text('Set current balance (USD)'),
         content: TextField(
-            controller: ctrl,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true)),
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dCtx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dCtx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dCtx, true),
-              child: const Text('Save')),
+            onPressed: () => Navigator.pop(dCtx, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -2505,9 +3338,12 @@ class StatsTab extends StatelessWidget {
       if (a != null && a >= 0) {
         final e = await app.setBalance(a);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
               content: Text(e ?? 'Balance updated'),
-              duration: const Duration(seconds: 2)));
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     }
@@ -2521,17 +3357,19 @@ class StatsTab extends StatelessWidget {
         backgroundColor: cCard,
         title: const Text('New starting balance (\$)'),
         content: TextField(
-            controller: ctrl,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            autofocus: true),
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          autofocus: true,
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -2540,22 +3378,34 @@ class StatsTab extends StatelessWidget {
       if (a != null && a >= 0) {
         final e = await app.setStarting(a);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
               content: Text(e ?? 'Starting balance updated'),
-              duration: const Duration(seconds: 2)));
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     }
   }
 
   Widget _stat(String label, String value, Color color) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(label, style: const TextStyle(color: cDim, fontSize: 13)),
-          Text(value,
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: color)),
-        ]),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: cDim, fontSize: 13)),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+            color: color,
+          ),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _reset(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -2563,13 +3413,19 @@ class StatsTab extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         backgroundColor: cCard,
         title: const Text('Reset the paper account?'),
-        content: const Text('This deletes all paper trades and sets the balance back.'),
+        content: const Text(
+          'This deletes all paper trades and sets the balance back.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: cRed),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Reset')),
+            style: FilledButton.styleFrom(backgroundColor: cRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset'),
+          ),
         ],
       ),
     );
@@ -2581,11 +3437,18 @@ class StatsTab extends StatelessWidget {
         backgroundColor: cCard,
         title: const Text('Starting balance after reset (\$)'),
         content: TextField(
-            controller: ctrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reset')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset'),
+          ),
         ],
       ),
     );
@@ -2594,9 +3457,12 @@ class StatsTab extends StatelessWidget {
       if (a != null && a >= 0) {
         final e = await app.resetPaper(a);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
               content: Text(e ?? 'Paper account reset'),
-              duration: const Duration(seconds: 2)));
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     }
@@ -2620,7 +3486,8 @@ class EquityPainter extends CustomPainter {
     final rg = (mx - mn) == 0 ? 1.0 : (mx - mn);
     const pl = 52.0, pr = 14.0, pt = 16.0, pb = 26.0;
     double x(int i) =>
-        pl + (pts.length < 2 ? 0 : i * (size.width - pl - pr) / (pts.length - 1));
+        pl +
+        (pts.length < 2 ? 0 : i * (size.width - pl - pr) / (pts.length - 1));
     double y(double v) => pt + (mx - v) * (size.height - pt - pb) / rg;
 
     final grid = Paint()
@@ -2632,13 +3499,17 @@ class EquityPainter extends CustomPainter {
       final yy = y(v);
       canvas.drawLine(Offset(pl, yy), Offset(size.width - pr, yy), grid);
       label.text = TextSpan(
-          text: fmt(v),
-          style: const TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'));
+        text: fmt(v),
+        style: const TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'),
+      );
       label.layout();
       label.paint(canvas, Offset(4, yy - 6));
     }
-    canvas.drawLine(Offset(pl, y(0)), Offset(size.width - pr, y(0)),
-        Paint()..color = const Color(0xFF3A4150));
+    canvas.drawLine(
+      Offset(pl, y(0)),
+      Offset(size.width - pr, y(0)),
+      Paint()..color = const Color(0xFF3A4150),
+    );
 
     final up = pts.last >= 0;
     final line = Paint()
@@ -2659,8 +3530,9 @@ class EquityPainter extends CustomPainter {
       canvas.drawCircle(Offset(x(i), y(pts[i])), 3.5, dot);
     }
     label.text = const TextSpan(
-        text: 'trade #',
-        style: TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'));
+      text: 'trade #',
+      style: TextStyle(color: cDim, fontSize: 11, fontFamily: 'Roboto'),
+    );
     label.layout();
     label.paint(canvas, Offset(size.width / 2 - 16, size.height - 14));
   }
@@ -2668,7 +3540,6 @@ class EquityPainter extends CustomPainter {
   @override
   bool shouldRepaint(EquityPainter old) => true;
 }
-
 
 /// AI tab: Groq-brain auto-trade controls + full AI log. Every decision is
 /// visible; nothing trades unless the user switches Auto mode on.
@@ -2699,9 +3570,14 @@ class _AiTabState extends State<AiTab> {
         border: Border.all(color: color),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text('$label $pct%',
-          style: TextStyle(
-              color: color, fontWeight: FontWeight.w700, fontSize: 11)),
+      child: Text(
+        '$label $pct%',
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+        ),
+      ),
     );
   }
 
@@ -2714,13 +3590,14 @@ class _AiTabState extends State<AiTab> {
     try {
       final quote = await AutoTrade.liveQuote();
       if (quote == null) {
-        setState(() =>
-            _adviceErr = 'No live price right now - try again in a moment.');
+        setState(
+          () => _adviceErr = 'No live price right now - try again in a moment.',
+        );
         return;
       }
       final candles = await TwelveDataCandleService(
-              apiKey: MarketDataConfig.apiKey)
-          .fetchCandles(Instrument.xauUsd, interval: '15min', limit: 60);
+        apiKey: MarketDataConfig.apiKey,
+      ).fetchCandles(Instrument.xauUsd, interval: '15min', limit: 60);
       // Levels the user drew on the chart, so the AI reads HIS S/R lines.
       final prefs = await SharedPreferences.getInstance();
       final levels = <double>[];
@@ -2734,7 +3611,11 @@ class _AiTabState extends State<AiTab> {
         }
       } catch (_) {}
       final r = await GroqBrain().advise(
-          bid: quote.$1, ask: quote.$2, candles: candles, drawnLevels: levels);
+        bid: quote.$1,
+        ask: quote.$2,
+        candles: candles,
+        drawnLevels: levels,
+      );
       // User request: when the AI is SURE of a direction, start the trade
       // immediately at market with TP/SL - no waiting for a start price.
       String? tradeMsg;
@@ -2746,7 +3627,9 @@ class _AiTabState extends State<AiTab> {
         });
       }
       await AiLog.add(
-          'decision', 'Advice: ${r.verdict.toUpperCase()} - ${r.reasons}');
+        'decision',
+        'Advice: ${r.verdict.toUpperCase()} - ${r.reasons}',
+      );
     } on BrainException catch (e) {
       if (mounted) setState(() => _adviceErr = 'AI unavailable (${e.message})');
     } catch (_) {
@@ -2765,8 +3648,10 @@ class _AiTabState extends State<AiTab> {
     final app = widget.app;
     final dir = r.verdict; // 'buy' | 'sell'
     if (app.positions.any((p) => p['status'] == 'open')) {
-      await AiLog.add('decision',
-          'Advice sure (${dir.toUpperCase()}) but a position is already open - no trade');
+      await AiLog.add(
+        'decision',
+        'Advice sure (${dir.toUpperCase()}) but a position is already open - no trade',
+      );
       return 'AI is sure, but a position is already open - no new trade.';
     }
     final px = app.entrySidePrice(dir); // buy at ask, sell at bid
@@ -2821,96 +3706,130 @@ class _AiTabState extends State<AiTab> {
           color: cCard,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const Icon(Icons.lightbulb_outline, color: cDim, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(
-                    child: Text('AI chart advice',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.lightbulb_outline, color: cDim, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'AI chart advice',
                         style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 15))),
-              ]),
-              const SizedBox(height: 4),
-              const Text(
-                  'Reads support/resistance and recent structure, then advises buy, sell or wait. Possibilities from the chart data - not financial advice.',
-                  style: TextStyle(color: cDim, fontSize: 12)),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _advising || !st.keyConfigured
-                      ? null
-                      : _getAdvice,
-                  icon: _advising
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.insights, size: 18),
-                  label: Text(_advising ? 'Reading the chart...' : 'Get advice'),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              if (_adviceErr != null) ...[
-                const SizedBox(height: 8),
-                Text(_adviceErr!,
-                    style: const TextStyle(color: cRed, fontSize: 12)),
-              ],
-              if (_advice != null && _adviceErr == null) ...[
+                const SizedBox(height: 4),
+                const Text(
+                  'Reads support/resistance and recent structure, then advises buy, sell or wait. Possibilities from the chart data - not financial advice.',
+                  style: TextStyle(color: cDim, fontSize: 12),
+                ),
                 const SizedBox(height: 10),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _advice!.verdict == 'buy'
-                          ? cGreen
-                          : _advice!.verdict == 'sell'
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _advising || !st.keyConfigured
+                        ? null
+                        : _getAdvice,
+                    icon: _advising
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.insights, size: 18),
+                    label: Text(
+                      _advising ? 'Reading the chart...' : 'Get advice',
+                    ),
+                  ),
+                ),
+                if (_adviceErr != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _adviceErr!,
+                    style: const TextStyle(color: cRed, fontSize: 12),
+                  ),
+                ],
+                if (_advice != null && _adviceErr == null) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _advice!.verdict == 'buy'
+                              ? cGreen
+                              : _advice!.verdict == 'sell'
                               ? cRed
                               : gold,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(_advice!.verdict.toUpperCase(),
-                        style: const TextStyle(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _advice!.verdict.toUpperCase(),
+                          style: const TextStyle(
                             color: Colors.black,
                             fontWeight: FontWeight.w800,
-                            fontSize: 12)),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _advice!.reasons,
+                          style: const TextStyle(fontSize: 12, height: 1.35),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: Text(_advice!.reasons,
-                          style:
-                              const TextStyle(fontSize: 12, height: 1.35))),
-                ]),
-                if (_advice!.buyPct != null || _advice!.sellPct != null) ...[
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    if (_advice!.buyPct != null)
-                      _pctChip('BUY', _advice!.buyPct!, cGreen),
-                    if (_advice!.buyPct != null && _advice!.sellPct != null)
-                      const SizedBox(width: 8),
-                    if (_advice!.sellPct != null)
-                      _pctChip('SELL', _advice!.sellPct!, cRed),
-                  ]),
-                ],
-                if (_adviceTrade != null) ...[
-                  const SizedBox(height: 8),
-                  Text(_adviceTrade!,
+                  if (_advice!.buyPct != null || _advice!.sellPct != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (_advice!.buyPct != null)
+                          _pctChip('BUY', _advice!.buyPct!, cGreen),
+                        if (_advice!.buyPct != null && _advice!.sellPct != null)
+                          const SizedBox(width: 8),
+                        if (_advice!.sellPct != null)
+                          _pctChip('SELL', _advice!.sellPct!, cRed),
+                      ],
+                    ),
+                  ],
+                  if (_adviceTrade != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _adviceTrade!,
                       style: const TextStyle(
-                          color: cGreen,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
-                ] else if (_advice!.verdict != 'wait' &&
-                    _advice!.confidence != 'high') ...[
-                  const SizedBox(height: 8),
-                  const Text('AI is not sure enough - no trade, read only.',
-                      style: TextStyle(color: cDim, fontSize: 12)),
+                        color: cGreen,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ] else if (_advice!.verdict != 'wait' &&
+                      _advice!.confidence != 'high') ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'AI is not sure enough - no trade, read only.',
+                      style: TextStyle(color: cDim, fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Possibilities, not financial advice.',
+                    style: TextStyle(color: cDim, fontSize: 11),
+                  ),
                 ],
-                const SizedBox(height: 6),
-                const Text('Possibilities, not financial advice.',
-                    style: TextStyle(color: cDim, fontSize: 11)),
               ],
-            ]),
+            ),
           ),
         ),
         const SizedBox(height: 14),
@@ -2918,151 +3837,202 @@ class _AiTabState extends State<AiTab> {
           color: cCard,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const Icon(Icons.smart_toy_outlined, color: cDim, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(
-                    child: Text('AI auto-trade',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.smart_toy_outlined, color: cDim, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'AI auto-trade',
                         style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 15))),
-                Switch(
-                  value: st.enabled,
-                  onChanged: (v) async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await AutoTrade.setEnabled(prefs, v);
-                    _refresh();
-                    if (v) {
-                      // User request: check right away on switch-on - a sure
-                      // signal enters immediately, not 15 minutes later.
-                      setState(() => _thinking = true);
-                      final result =
-                          await AutoTrade.think(prefs, manual: true);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(SnackBar(content: Text(result)));
-                        setState(() => _thinking = false);
-                      }
-                      _refresh();
-                    }
-                  },
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    Switch(
+                      value: st.enabled,
+                      onChanged: (v) async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await AutoTrade.setEnabled(prefs, v);
+                        _refresh();
+                        if (v) {
+                          // User request: check right away on switch-on - a sure
+                          // signal enters immediately, not 15 minutes later.
+                          setState(() => _thinking = true);
+                          final result = await AutoTrade.think(
+                            prefs,
+                            manual: true,
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(content: Text(result)));
+                            setState(() => _thinking = false);
+                          }
+                          _refresh();
+                        }
+                      },
+                    ),
+                  ],
                 ),
-              ]),
-              const SizedBox(height: 4),
-              Text(
-                !st.keyConfigured
-                    ? 'AI key missing in this build - cannot run'
-                    : st.pausedReason != null
-                        ? 'Paused: ${st.pausedReason}'
-                        : st.enabled
-                            ? 'On - thinks every 15 min, enters at market with TP/SL when the AI is sure'
-                            : 'Off - nothing trades',
-                style: TextStyle(
+                const SizedBox(height: 4),
+                Text(
+                  !st.keyConfigured
+                      ? 'AI key missing in this build - cannot run'
+                      : st.pausedReason != null
+                      ? 'Paused: ${st.pausedReason}'
+                      : st.enabled
+                      ? 'On - thinks every 15 min, enters at market with TP/SL when the AI is sure'
+                      : 'Off - nothing trades',
+                  style: TextStyle(
                     color: !st.keyConfigured || st.pausedReason != null
                         ? cRed
                         : cDim,
-                    fontSize: 12),
-              ),
-              if (st.keyConfigured)
-                const Text('Groq key built in - nothing to enter',
-                    style: TextStyle(color: cDim, fontSize: 11)),
-              if (st.pausedReason != null && st.enabled) ...[
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: () async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await AutoTrade.resume(prefs);
-                    _refresh();
-                  },
-                  child: const Text('Resume'),
+                    fontSize: 12,
+                  ),
+                ),
+                if (st.keyConfigured)
+                  const Text(
+                    'Groq key built in - nothing to enter',
+                    style: TextStyle(color: cDim, fontSize: 11),
+                  ),
+                if (st.pausedReason != null && st.enabled) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await AutoTrade.resume(prefs);
+                      _refresh();
+                    },
+                    child: const Text('Resume'),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  'Today: ${st.tradesToday}/${AutoTrade.maxTradesPerDay} trades - loss streak ${st.consecutiveLosses} - last run ${st.lastRunAt == null ? 'never' : _fmt(st.lastRunAt!)}',
+                  style: const TextStyle(color: cDim, fontSize: 12),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Text(
+                      'Size per trade',
+                      style: TextStyle(fontSize: 12, color: cDim),
+                    ),
+                    const SizedBox(width: 12),
+                    DropdownButton<double>(
+                      value: st.sizePct,
+                      dropdownColor: cCard,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 5.0,
+                          child: Text('5% of balance'),
+                        ),
+                        DropdownMenuItem(
+                          value: 10.0,
+                          child: Text('10% of balance'),
+                        ),
+                        DropdownMenuItem(
+                          value: 15.0,
+                          child: Text('15% of balance'),
+                        ),
+                        DropdownMenuItem(
+                          value: 20.0,
+                          child: Text('20% of balance'),
+                        ),
+                        DropdownMenuItem(
+                          value: 25.0,
+                          child: Text('25% of balance'),
+                        ),
+                      ],
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        final prefs = await SharedPreferences.getInstance();
+                        await AutoTrade.setSizePct(prefs, v);
+                        _refresh();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _thinking || !st.enabled
+                        ? null
+                        : () async {
+                            setState(() => _thinking = true);
+                            final prefs = await SharedPreferences.getInstance();
+                            final result = await AutoTrade.think(
+                              prefs,
+                              manual: true,
+                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).showSnackBar(SnackBar(content: Text(result)));
+                            }
+                            setState(() => _thinking = false);
+                            _refresh();
+                          },
+                    icon: _thinking
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.psychology, size: 18),
+                    label: Text(_thinking ? 'Thinking...' : 'Think now'),
+                  ),
                 ),
               ],
-              const SizedBox(height: 10),
-              Text(
-                  'Today: ${st.tradesToday}/${AutoTrade.maxTradesPerDay} trades - loss streak ${st.consecutiveLosses} - last run ${st.lastRunAt == null ? 'never' : _fmt(st.lastRunAt!)}',
-                  style: const TextStyle(color: cDim, fontSize: 12)),
-              const SizedBox(height: 10),
-              Row(children: [
-                const Text('Size per trade', style: TextStyle(fontSize: 12, color: cDim)),
-                const SizedBox(width: 12),
-                DropdownButton<double>(
-                  value: st.sizePct,
-                  dropdownColor: cCard,
-                  items: const [
-                    DropdownMenuItem(value: 5.0, child: Text('5% of balance')),
-                    DropdownMenuItem(value: 10.0, child: Text('10% of balance')),
-                    DropdownMenuItem(value: 15.0, child: Text('15% of balance')),
-                    DropdownMenuItem(value: 20.0, child: Text('20% of balance')),
-                    DropdownMenuItem(value: 25.0, child: Text('25% of balance')),
-                  ],
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    final prefs = await SharedPreferences.getInstance();
-                    await AutoTrade.setSizePct(prefs, v);
-                    _refresh();
-                  },
-                ),
-              ]),
-              const SizedBox(height: 4),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _thinking || !st.enabled
-                      ? null
-                      : () async {
-                          setState(() => _thinking = true);
-                          final prefs = await SharedPreferences.getInstance();
-                          final result =
-                              await AutoTrade.think(prefs, manual: true);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(result)));
-                          }
-                          setState(() => _thinking = false);
-                          _refresh();
-                        },
-                  icon: _thinking
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.psychology, size: 18),
-                  label: Text(_thinking ? 'Thinking...' : 'Think now'),
-                ),
-              ),
-            ]),
+            ),
           ),
         ),
         const SizedBox(height: 14),
-        const Text('AI log',
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+        const Text(
+          'AI log',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+        ),
         const SizedBox(height: 6),
         if (_log.isEmpty)
-          const Text('No AI activity yet. Switch auto-trade on.',
-              style: TextStyle(color: cDim, fontSize: 12))
+          const Text(
+            'No AI activity yet. Switch auto-trade on.',
+            style: TextStyle(color: cDim, fontSize: 12),
+          )
         else
-          ..._log.map((e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ..._log.map(
+            (e) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Icon(
                     e.kind == 'trade'
                         ? Icons.swap_vert
                         : e.kind == 'pause'
-                            ? Icons.pause_circle_outline
-                            : e.kind == 'error'
-                                ? Icons.error_outline
-                                : Icons.psychology,
+                        ? Icons.pause_circle_outline
+                        : e.kind == 'error'
+                        ? Icons.error_outline
+                        : Icons.psychology,
                     size: 14,
                     color: e.kind == 'error' || e.kind == 'pause' ? cRed : cDim,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: Text(e.text,
-                          style: const TextStyle(fontSize: 12))),
-                  Text(_fmt(e.at),
-                      style: const TextStyle(color: cDim, fontSize: 10)),
-                ]),
-              )),
+                    child: Text(e.text, style: const TextStyle(fontSize: 12)),
+                  ),
+                  Text(
+                    _fmt(e.at),
+                    style: const TextStyle(color: cDim, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }

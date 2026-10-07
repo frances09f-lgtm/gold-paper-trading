@@ -8,11 +8,14 @@
 /// last-seen open positions and untriggered price alerts stored in
 /// SharedPreferences, then posts system notifications.
 import 'dart:convert';
+
 import 'usage_reporter.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+
 import 'bridge.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -23,8 +26,7 @@ const String bgTaskName = 'oroBackgroundCheck';
 const String _channelId = 'oro_alerts';
 const String _sbUrl = 'https://ncaialkmxhbtarmhoiei.supabase.co';
 // Public anon key (same as the app; RPCs are pin-guarded).
-const String _sbKey =
-    'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
+const String _sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
 
 final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
 
@@ -45,7 +47,7 @@ Future<void> notifiedAdd(SharedPreferences prefs, String key) async {
   try {
     final raw = prefs.getString('tj_notified');
     final map = <String, dynamic>{
-      if (raw != null) ...Map<String, dynamic>.from(jsonDecode(raw) as Map)
+      if (raw != null) ...Map<String, dynamic>.from(jsonDecode(raw) as Map),
     };
     map[key] = DateTime.now().toIso8601String();
     final cutoff = DateTime.now().subtract(const Duration(days: 7));
@@ -59,16 +61,21 @@ Future<void> notifiedAdd(SharedPreferences prefs, String key) async {
 
 Future<void> _initPlugin() async {
   const init = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'));
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  );
   await _fln.initialize(init);
-  final android = _fln.resolvePlatformSpecificImplementation<
-      AndroidFlutterLocalNotificationsPlugin>();
-  await android?.createNotificationChannel(const AndroidNotificationChannel(
-    _channelId,
-    'Oro alerts',
-    description: 'TP/SL hits and price alerts',
-    importance: Importance.high,
-  ));
+  final android = _fln
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >();
+  await android?.createNotificationChannel(
+    const AndroidNotificationChannel(
+      _channelId,
+      'Oro alerts',
+      description: 'TP/SL hits and price alerts',
+      importance: Importance.high,
+    ),
+  );
 }
 
 /// Call once from main() before runApp.
@@ -77,7 +84,8 @@ Future<void> initNotifications() async {
   // Runtime permission (Android 13+). No-op on older versions.
   await _fln
       .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
+        AndroidFlutterLocalNotificationsPlugin
+      >()
       ?.requestNotificationsPermission();
   await Workmanager().initialize(oroBgDispatcher);
   await Workmanager().registerPeriodicTask(
@@ -120,8 +128,11 @@ Future<void> showForegroundNotification(String title, String body) async {
       await _initPlugin();
       _foregroundInitDone = true;
     }
-    await _notify(DateTime.now().millisecondsSinceEpoch ~/ 1000 % 100000,
-        title, body);
+    await _notify(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000 % 100000,
+      title,
+      body,
+    );
   } catch (_) {
     // Plugin unavailable (tests, unsupported platform): banner still shows.
   }
@@ -149,8 +160,11 @@ class _Quote {
 Future<_Quote?> _fetchQuote() async {
   try {
     final r = await http
-        .get(Uri.parse(
-            'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'))
+        .get(
+          Uri.parse(
+            'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD',
+          ),
+        )
         .timeout(const Duration(seconds: 15));
     if (r.statusCode != 200) return null;
     final list = jsonDecode(r.body) as List;
@@ -170,13 +184,18 @@ Future<_Quote?> _fetchQuote() async {
 /// Close one paper position server-side via the existing paper_close RPC.
 /// Returns the decoded response (may carry pnl), or null on failure.
 Future<Map<String, dynamic>?> _closePosition(
-    String pin, dynamic tid, double price, String why) async {
+  String pin,
+  dynamic tid,
+  double price,
+  String why,
+) async {
   try {
     final r = await http
-        .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_close'),
-            headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
-            body: jsonEncode(
-                {'p': pin, 'tid': tid, 'price': price, 'why': why}))
+        .post(
+          Uri.parse('$_sbUrl/rest/v1/rpc/paper_close'),
+          headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
+          body: jsonEncode({'p': pin, 'tid': tid, 'price': price, 'why': why}),
+        )
         .timeout(const Duration(seconds: 20));
     if (r.statusCode >= 400) return null;
     UsageReporter.report('trade_closed', {'src': 'auto'});
@@ -189,13 +208,31 @@ Future<Map<String, dynamic>?> _closePosition(
 
 Future<List<Map<String, dynamic>>> _fetchPositions(String pin) async {
   final r = await http
-      .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_state'),
-          headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
-          body: jsonEncode({'p': pin}))
+      .post(
+        Uri.parse('$_sbUrl/rest/v1/rpc/paper_state'),
+        headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
+        body: jsonEncode({'p': pin}),
+      )
       .timeout(const Duration(seconds: 20));
-  if (r.statusCode >= 400) return const [];
+  if (r.statusCode >= 400) {
+    throw StateError('Account refresh failed: HTTP ${r.statusCode}');
+  }
   final j = jsonDecode(r.body);
-  return List<Map<String, dynamic>>.from(j['positions'] as List? ?? []);
+  if (j is! Map || j['positions'] is! List) {
+    throw StateError('Account response has no positions');
+  }
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(
+    'tj_paper_cache',
+    jsonEncode({
+      'accountAt': DateTime.now().millisecondsSinceEpoch,
+      'starting': j['starting'],
+      'balance': j['balance'],
+      'positions': j['positions'],
+    }),
+  );
+  OroBridge.notePaper(prefs);
+  return List<Map<String, dynamic>>.from(j['positions'] as List);
 }
 
 Future<void> _bgCheck() async {
@@ -209,9 +246,11 @@ Future<void> _bgCheck() async {
   // instead of a burst of stale notifications.
   final lastRunRaw = prefs.getString('tj_bg_last_run');
   final lastRun = lastRunRaw == null ? null : DateTime.tryParse(lastRunRaw);
-  final catchUp = lastRun == null ||
+  final catchUp =
+      lastRun == null ||
       DateTime.now().difference(lastRun) > const Duration(minutes: 45);
-  final pending = <(String, int, String, String)>[]; // (dedupeKey, id, title, body)
+  final pending =
+      <(String, int, String, String)>[]; // (dedupeKey, id, title, body)
 
   final quote = await _fetchQuote();
   var positions = await _fetchPositions(pin);
@@ -261,8 +300,8 @@ Future<void> _bgCheck() async {
       final slipAmt = slipMode == 'low'
           ? 0.05
           : slipMode == 'custom'
-              ? (slipCustom < 0 ? 0 : slipCustom)
-              : 0.0;
+          ? (slipCustom < 0 ? 0 : slipCustom)
+          : 0.0;
       final fillPx = buy ? mark - slipAmt : mark + slipAmt;
       final res = await _closePosition(pin, p['id'], fillPx, why);
       if (res == null) continue; // failed - retry next cycle, no notification
@@ -277,7 +316,7 @@ Future<void> _bgCheck() async {
         closeKey,
         nid++,
         '$label',
-        '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt'
+        '${buy ? 'Buy' : 'Sell'} XAU/USD ${_qty(p)} closed at ${mark.toStringAsFixed(2)}$pnlTxt',
       ));
     }
     if (closedIds.isNotEmpty) {
@@ -315,22 +354,31 @@ Future<void> _bgCheck() async {
         }
         final closeKey = 'close:$id';
         if (notifiedHas(prefs, closeKey)) continue; // app already told him
-        pending.add((closeKey, nid++, 'Oro: position closed',
-            '$dir XAU/USD ${_qty(p)} - $why'));
+        pending.add((
+          closeKey,
+          nid++,
+          'Oro: position closed',
+          '$dir XAU/USD ${_qty(p)} - $why',
+        ));
       }
     } catch (_) {}
   }
   await prefs.setString(
-      'tj_bg_positions',
-      jsonEncode(positions
-          .map((p) => {
-                'id': p['id'],
-                'direction': p['direction'],
-                'qty': p['qty'],
-                'tp': p['tp'],
-                'sl': p['sl'],
-              })
-          .toList()));
+    'tj_bg_positions',
+    jsonEncode(
+      positions
+          .map(
+            (p) => {
+              'id': p['id'],
+              'direction': p['direction'],
+              'qty': p['qty'],
+              'tp': p['tp'],
+              'sl': p['sl'],
+            },
+          )
+          .toList(),
+    ),
+  );
 
   // --- Price alerts ---
   final alertPrice = quote?.mid;
@@ -354,8 +402,12 @@ Future<void> _bgCheck() async {
           changed = true;
           final alertKey = 'alert:${a['id'] ?? '$level:$above'}';
           if (notifiedHas(prefs, alertKey)) continue; // app already told him
-          pending.add((alertKey, nid++, 'Oro: price alert',
-              'XAU/USD ${above ? "rose above" : "fell below"} $level (now ${price.toStringAsFixed(2)})'));
+          pending.add((
+            alertKey,
+            nid++,
+            'Oro: price alert',
+            'XAU/USD ${above ? "rose above" : "fell below"} $level (now ${price.toStringAsFixed(2)})',
+          ));
         }
         if (changed) {
           await prefs.setString('tj_price_alerts', jsonEncode(alerts));
@@ -376,8 +428,11 @@ Future<void> _bgCheck() async {
         if (closes > 0) '$closes position${closes == 1 ? '' : 's'} closed',
         if (alertsN > 0) '$alertsN price alert${alertsN == 1 ? '' : 's'}',
       ];
-      await _notify(900, 'Oro: while you were away',
-          '${parts.join(' · ')} - tap to view');
+      await _notify(
+        900,
+        'Oro: while you were away',
+        '${parts.join(' · ')} - tap to view',
+      );
     } else {
       for (final e in pending) {
         await _notify(e.$2, e.$3, e.$4);
@@ -391,7 +446,11 @@ Future<void> _bgCheck() async {
     await prefs.setString('tj_bg_last_run', DateTime.now().toIso8601String());
     // Keep the Friday bridge snapshot fresh even when the app is closed.
     OroBridge.noteQuote(
-        prefs, quote.bid, quote.ask, DateTime.now().millisecondsSinceEpoch);
+      prefs,
+      quote.bid,
+      quote.ask,
+      DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   // AI auto-trade: the brain runs after position housekeeping so a fresh

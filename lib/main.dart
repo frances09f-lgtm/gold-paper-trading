@@ -494,6 +494,7 @@ class AppState extends ChangeNotifier {
       // Stage (d): device-local cache so the app opens with last-known
       // state while offline; the network refresh above always wins.
       prefs?.setString('tj_paper_cache', jsonEncode({
+        'accountAt': DateTime.now().millisecondsSinceEpoch,
         'starting': starting,
         'balance': balance,
         'positions': positions,

@@ -8,6 +8,39 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('OroBridge snapshot (Friday offline bridge)', () {
+    test('quote updates preserve account age and persisted quote survives notePaper', () async {
+      SharedPreferences.setMockInitialValues({
+        'tj_paper_cache': jsonEncode({
+          'accountAt': 1234,
+          'balance': 42,
+          'positions': [],
+        }),
+        OroBridge.snapshotKey: jsonEncode({
+          'bid': 4000,
+          'ask': 4001,
+          'quoteAt': 777,
+        }),
+      });
+      final prefs = await SharedPreferences.getInstance();
+      OroBridge.notePaper(prefs);
+      var j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!);
+      expect(j['quoteAt'], 777);
+      expect(j['bid'], 4000);
+      expect(j['accountAt'], 1234);
+      expect(j['accountKnown'], true);
+      OroBridge.noteQuote(prefs, 4100, 4101, 9999);
+      j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!);
+      expect(j['accountAt'], 1234);
+      expect(j['quoteAt'], 9999);
+    });
+    test('missing account remains unknown', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      OroBridge.noteQuote(prefs, 4000, 4001, 9999);
+      final j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!);
+      expect(j['accountKnown'], false);
+      expect(j['accountAt'], 0);
+    });
     test('quote + paper cache merge into one real snapshot', () async {
       SharedPreferences.setMockInitialValues({
         'tj_paper_cache': jsonEncode({
@@ -52,35 +85,38 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       OroBridge.noteQuote(prefs, 5555.0, 5555.5, 777);
       OroBridge.noteQuote(prefs, 0, -5, 123); // rejected
-      final j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!)
-          as Map<String, dynamic>;
+      final j = jsonDecode(
+        prefs.getString(OroBridge.snapshotKey)!,
+      ) as Map<String, dynamic>;
       expect(j['bid'], 5555.0);
       expect(j['ask'], 5555.5);
       expect(j['quoteAt'], 777);
     });
 
-    test('no paper cache: snapshot still carries the quote, no crash', () async {
-      SharedPreferences.setMockInitialValues({});
-      final prefs = await SharedPreferences.getInstance();
-      OroBridge.noteQuote(prefs, 4000.0, 4000.5, 99);
-      final j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!)
-          as Map<String, dynamic>;
-      expect(j['balance'], isNull);
-      expect((j['open'] as List), isEmpty);
-      expect(j['bid'], 4000.0);
-    });
+    test(
+      'no paper cache: snapshot still carries the quote, no crash',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await SharedPreferences.getInstance();
+        OroBridge.noteQuote(prefs, 4000.0, 4000.5, 99);
+        final j = jsonDecode(
+          prefs.getString(OroBridge.snapshotKey)!,
+        ) as Map<String, dynamic>;
+        expect(j['balance'], isNull);
+        expect((j['open'] as List), isEmpty);
+        expect(j['bid'], 4000.0);
+      },
+    );
 
     test('notePaper rewrites with fresh positions', () async {
       SharedPreferences.setMockInitialValues({
-        'tj_paper_cache': jsonEncode({
-          'balance': 5000.0,
-          'positions': [],
-        }),
+        'tj_paper_cache': jsonEncode({'balance': 5000.0, 'positions': []}),
       });
       final prefs = await SharedPreferences.getInstance();
       OroBridge.notePaper(prefs);
-      final j = jsonDecode(prefs.getString(OroBridge.snapshotKey)!)
-          as Map<String, dynamic>;
+      final j = jsonDecode(
+        prefs.getString(OroBridge.snapshotKey)!,
+      ) as Map<String, dynamic>;
       expect(j['balance'], 5000.0);
     });
   });

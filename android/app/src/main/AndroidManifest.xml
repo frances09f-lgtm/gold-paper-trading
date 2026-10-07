@@ -37,6 +37,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+            <provider
+            android:name=".OroBridgeProvider"
+            android:authorities="com.ambi.gold_paper_trading.bridge"
+            android:exported="true" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

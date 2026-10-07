@@ -12,6 +12,7 @@ import 'usage_reporter.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'bridge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -388,6 +389,9 @@ Future<void> _bgCheck() async {
   }
   if (quote != null) {
     await prefs.setString('tj_bg_last_run', DateTime.now().toIso8601String());
+    // Keep the Friday bridge snapshot fresh even when the app is closed.
+    OroBridge.noteQuote(
+        prefs, quote.bid, quote.ask, DateTime.now().millisecondsSinceEpoch);
   }
 
   // AI auto-trade: the brain runs after position housekeeping so a fresh

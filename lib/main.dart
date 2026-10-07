@@ -17,6 +17,7 @@ import 'notification_log.dart';
 import 'sessions.dart';
 import 'slippage.dart';
 import 'watch_service.dart';
+import 'bridge.dart';
 import 'notifications.dart';
 import 'usage_reporter.dart';
 
@@ -420,6 +421,7 @@ class AppState extends ChangeNotifier {
       priceAt = q.ts.millisecondsSinceEpoch;
       priceOk = true;
       notifyListeners();
+      OroBridge.noteQuote(prefs, bid, ask, priceAt);
       checkTpsl();
       _checkAlerts();
       _fetching = false;
@@ -459,6 +461,7 @@ class AppState extends ChangeNotifier {
         priceAt = q.t;
         priceOk = true;
         notifyListeners();
+        OroBridge.noteQuote(prefs, bid, ask, priceAt);
         checkTpsl();
         _checkAlerts();
         _fetching = false;
@@ -495,6 +498,7 @@ class AppState extends ChangeNotifier {
         'balance': balance,
         'positions': positions,
       }));
+      OroBridge.notePaper(prefs);
       // Keep the background worker's position set in sync so a position
       // closed manually in the app is not later misreported as TP/SL.
       prefs?.setString(

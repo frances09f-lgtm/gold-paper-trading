@@ -153,7 +153,10 @@ const _systemPrompt =
     '"stop_loss":number,"take_profit":number,"size_pct":number,"reason":"one short sentence"}. '
     'stop_loss and take_profit are absolute prices for the suggested side. '
     'size_pct is the share of the paper balance to use as notional (1-25). '
-    'Choose hold unless the evidence is clear. Never invent data.';
+    'This is a paper account for learning to trade. Choose hold only when '
+    'the picture is genuinely unclear or mixed; when the data supports a '
+    'reasonable setup with defined risk, take the trade with medium or '
+    'high confidence. Never invent data.';
 
 /// Parse + validate + clamp the model output against real prices.
 /// Malformed output becomes a hold - the engine never acts on garbage.
@@ -256,10 +259,10 @@ class GroqBrain {
                   {'role': 'user', 'content': userPrompt},
                 ],
                 'temperature': 0.2,
-                'max_tokens': 1500,
-                // gpt-oss is a reasoning model: keep the reasoning cheap so
-                // the answer itself always fits in the token budget.
-                'reasoning_effort': 'low',
+                'max_tokens': 3000,
+                // gpt-oss is a reasoning model: medium effort gives a real
+                // analysis; low effort answered "hold" almost always.
+                'reasoning_effort': 'medium',
               }))
           .timeout(const Duration(seconds: 30));
       UsageReporter.report('ai_request', {'model': model, 'ok': r.statusCode == 200});

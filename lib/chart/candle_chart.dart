@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../analysis.dart';
 import '../market_data/models.dart';
@@ -53,7 +54,12 @@ class CandleChartPanel extends StatefulWidget {
   /// Latest live price for the dashed last-price line (optional).
   final double? livePrice;
 
-  const CandleChartPanel({super.key, this.loader, this.livePrice});
+  /// Fullscreen mode: the chart body fills the available height instead
+  /// of the fixed in-page height.
+  final bool expand;
+
+  const CandleChartPanel(
+      {super.key, this.loader, this.livePrice, this.expand = false});
 
   @override
   State<CandleChartPanel> createState() => CandleChartPanelState();
@@ -445,6 +451,20 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                   height: 12,
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: Color(0xFFF5C242))),
+            if (!widget.expand) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => FullscreenChartPage(
+                        loader: widget.loader,
+                        livePrice: widget.livePrice))),
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.fullscreen,
+                      size: 18, color: Color(0xFF8A93A6)),
+                ),
+              ),
+            ],
           ]),
           const SizedBox(height: 6),
           Row(children: [
@@ -476,11 +496,14 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           const SizedBox(height: 6),
           _legend(dim),
           const SizedBox(height: 4),
-          SizedBox(
-              height: 220 +
-                  ((rsiOn && candles.length > 14) ? 60 : 0) +
-                  ((macdOn && candles.length > 33) ? 60 : 0),
-              child: _body()),
+          if (widget.expand)
+            Expanded(child: _body())
+          else
+            SizedBox(
+                height: 220 +
+                    ((rsiOn && candles.length > 14) ? 60 : 0) +
+                    ((macdOn && candles.length > 33) ? 60 : 0),
+                child: _body()),
           if (candles.length >= 50) _biasStrip(),
         ],
       ),
@@ -1352,4 +1375,70 @@ class CandlePainter extends CustomPainter {
       old.pendingFib != pendingFib ||
       old.trendLines != trendLines ||
       old.pendingTrend != pendingTrend;
+}
+
+/// Fullscreen chart (user request): same real candle source and live
+/// price, landscape while open, orientation restored on close.
+class FullscreenChartPage extends StatefulWidget {
+  final CandleLoader? loader;
+  final double? livePrice;
+  const FullscreenChartPage({super.key, this.loader, this.livePrice});
+
+  @override
+  State<FullscreenChartPage> createState() => _FullscreenChartPageState();
+}
+
+class _FullscreenChartPageState extends State<FullscreenChartPage> {
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0E1116),
+      body: SafeArea(
+        child: Stack(children: [
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: CandleChartPanel(
+                  loader: widget.loader,
+                  livePrice: widget.livePrice,
+                  expand: true),
+            ),
+          ),
+          Positioned(
+            top: 14,
+            right: 14,
+            child: InkWell(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF232A35),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.fullscreen_exit,
+                    size: 20, color: Colors.white),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 }

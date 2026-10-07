@@ -91,6 +91,7 @@ class AutoTrade {
   static const _dayBalKey = 'tj_ai_day_balance';
   static const _openIdKey = 'tj_ai_open_id';
   static const _openEquityKey = 'tj_ai_open_equity';
+  static const _brainFailKey = 'tj_ai_brain_fails';
 
   // Hard rails (see approved design).
   static const maxTradesPerDay = 5;
@@ -137,11 +138,26 @@ class AutoTrade {
     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
   }
 
+  /// Pause reasons that are meant to last only for the day. A new day
+  /// clears them - before this, "paused for today" actually latched
+  /// forever until a manual resume, silently killing auto-trade.
+  static bool _isDayPause(String? reason) {
+    if (reason == null) return false;
+    return reason.contains('for today') ||
+        reason.contains('Daily limit') ||
+        reason.contains('Daily drawdown') ||
+        reason.startsWith('AI unavailable for hours');
+  }
+
   static void _rollDay(SharedPreferences prefs) {
     if (prefs.getString(_countDateKey) != _today()) {
       prefs.setString(_countDateKey, _today());
       prefs.setInt(_countKey, 0);
       prefs.remove(_dayBalKey);
+      if (_isDayPause(prefs.getString(_pauseKey))) {
+        prefs.remove(_pauseKey);
+        AiLog.add('decision', 'New day - daily pause cleared');
+      }
     }
   }
 
@@ -152,12 +168,14 @@ class AutoTrade {
   static Future<String> think(SharedPreferences prefs,
       {bool manual = false, GroqBrain? brain}) async {
     final st = await status(prefs);
+    UsageReporter.report('auto_tick', {'on': st.enabled, 'manual': manual});
     if (!st.enabled) return 'Auto-trade is off';
     if (!st.keyConfigured) {
       await _pause(prefs, 'AI key missing in this build');
       return 'AI key missing - auto-trade paused';
     }
     if (st.pausedReason != null && !manual) {
+      UsageReporter.report('auto_skip', {'why': 'paused'});
       return 'Paused: ${st.pausedReason}';
     }
     final now = DateTime.now();
@@ -173,7 +191,10 @@ class AutoTrade {
     await prefs.setString(_lastRunKey, now.toIso8601String());
 
     final pin = prefs.getString('tj_pin') ?? '';
-    if (pin.isEmpty) return 'App not unlocked on this device';
+    if (pin.isEmpty) {
+      UsageReporter.report('auto_skip', {'why': 'locked'});
+      return 'App not unlocked on this device';
+    }
 
     // --- gather real data ---
     final quote = await _fetchQuote();
@@ -181,9 +202,11 @@ class AutoTrade {
       final closed = marketClosedMessage();
       if (closed != null) {
         await AiLog.add('decision', 'Skipped: $closed');
+        UsageReporter.report('auto_skip', {'why': 'market_closed'});
         return 'Skipped: $closed';
       }
       await AiLog.add('error', 'No live quote - skipped this cycle');
+      UsageReporter.report('auto_skip', {'why': 'no_quote'});
       return 'No live quote - skipped';
     }
     List<Candle> candles;
@@ -192,6 +215,7 @@ class AutoTrade {
           .fetchCandles(Instrument.xauUsd, interval: '15min', limit: 60);
     } catch (e) {
       await AiLog.add('error', 'No candle data - skipped this cycle ($e)');
+      UsageReporter.report('auto_skip', {'why': 'no_candles'});
       return 'No candle data - skipped';
     }
     final (state, stateErr) = await _paperState(pin);
@@ -200,6 +224,7 @@ class AutoTrade {
         await prefs.remove('tj_pin');
       }
       await AiLog.add('error', 'Paper account read failed: $stateErr');
+      UsageReporter.report('auto_skip', {'why': 'state_read'});
       return 'Could not read paper account - $stateErr';
     }
     final balance = (state['balance'] as num).toDouble();
@@ -259,6 +284,7 @@ class AutoTrade {
         await AiLog.add('decision',
             'Skipped: a position is already open (not opened by AI)');
       }
+      UsageReporter.report('auto_skip', {'why': 'position_open'});
       return 'Position already open - holding off';
     }
 
@@ -275,10 +301,26 @@ class AutoTrade {
     AiDecision d;
     try {
       d = await (brain ?? GroqBrain()).decide(snapshot);
+      await prefs.setInt(_brainFailKey, 0);
     } on BrainException catch (e) {
-      await _pause(prefs, 'AI unavailable (${e.message})');
-      return 'Paused: ${e.message}';
+      // One bad call (rate limit, a 3 AM network blip) must NOT latch
+      // auto-trade off - it used to pause forever here. Skip the cycle
+      // and retry; pause only after ~2 hours of straight failures (and
+      // the daily roll clears that pause too).
+      final fails = (prefs.getInt(_brainFailKey) ?? 0) + 1;
+      await prefs.setInt(_brainFailKey, fails);
+      UsageReporter.report('auto_skip', {'why': 'brain'});
+      if (fails >= 8) {
+        await _pause(prefs, 'AI unavailable for hours (${e.message})');
+        return 'Paused: ${e.message}';
+      }
+      await AiLog.add(
+          'error', 'AI unavailable (${e.message}) - retrying next cycle');
+      return 'AI unavailable this cycle - will retry';
     }
+
+    UsageReporter.report(
+        'ai_decision', {'action': d.action, 'conf': d.confidence});
 
     await AiLog.add('decision',
         '${d.action.toUpperCase()} (${d.confidence}) - ${d.reason.isEmpty ? 'no reason given' : d.reason}');
@@ -292,6 +334,7 @@ class AutoTrade {
     final opened = await _paperOpen(pin, d.action, ref, qty, d.tp, d.sl);
     if (opened == null) {
       await AiLog.add('error', 'Order rejected by the paper backend');
+      UsageReporter.report('auto_skip', {'why': 'order_rejected'});
       return 'Order rejected';
     }
     await prefs.setInt(_countKey, (prefs.getInt(_countKey) ?? 0) + 1);
@@ -388,12 +431,13 @@ class AutoTrade {
       final (state, _) = await _paperState(pin);
       final positions =
           List<Map<String, dynamic>>.from(state?['positions'] as List? ?? []);
-      // paper_state returns full history; only an OPEN position can be ours.
+      // paper_state returns full history, newest first (opened_at DESC);
+      // only an OPEN position can be ours.
       final open = positions.where((p) => p['status'] == 'open').toList();
       if (open.isEmpty) return null;
       UsageReporter.report('trade_opened', {'src': 'auto'});
-      // Newest open position = ours (we only open when none exist).
-      return '${open.last['id']}';
+      // First = newest = ours (we only open when none exist).
+      return '${open.first['id']}';
     } catch (_) {
       return null;
     }

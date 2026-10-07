@@ -83,6 +83,8 @@ class CandleChartPanel extends StatefulWidget {
 }
 
 class CandleChartPanelState extends State<CandleChartPanel> {
+  bool usingRange = false;
+  int _loadGeneration = 0;
   ChartInterval interval = intervals[1]; // 15m default
   List<Candle> candles = [];
   bool loading = false;
@@ -157,7 +159,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   @override
   void initState() {
     super.initState();
-    if (widget.rangeMode) interval = tradeRanges[1];
+    usingRange = widget.rangeMode;
+    if (usingRange) interval = tradeRanges[1];
     _loadLines();
     _load();
     _armTimer();
@@ -469,18 +472,22 @@ class CandleChartPanelState extends State<CandleChartPanel> {
         error = null;
       });
     }
+    final generation = ++_loadGeneration;
     try {
       final requested = interval.code;
       final raw = await loader(requested);
-      final data = widget.rangeMode ? trimTradeRange(raw, requested) : raw;
-      if (!mounted || interval.code != requested) return;
+      final data = usingRange ? trimTradeRange(raw, requested) : raw;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          interval.code != requested)
+        return;
       setState(() {
         candles = data;
         loading = false;
         error = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         loading = false;
         // Keep the last real candles on screen; flag the error.
@@ -675,7 +682,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                       builder: (_) => FullscreenChartPage(
                         loader: widget.loader,
                         livePrice: widget.livePrice,
-                        rangeMode: widget.rangeMode,
+                        rangeMode: usingRange,
                       ),
                     ),
                   ),
@@ -692,10 +699,21 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             ],
           ),
           const SizedBox(height: 6),
-          if (!widget.rangeMode) ...[
+          if (widget.rangeMode)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () {
+                  usingRange = !usingRange;
+                  _setInterval(usingRange ? tradeRanges[1] : intervals[0]);
+                },
+                child: Text(usingRange ? 'Candle intervals' : 'History ranges'),
+              ),
+            ),
+          if (!usingRange) ...[
             Row(
               children: [
-                ...(widget.rangeMode ? tradeRanges : intervals).map((iv) {
+                ...(usingRange ? tradeRanges : intervals).map((iv) {
                   final on = iv.code == interval.code;
                   return GestureDetector(
                     onTap: () => _setInterval(iv),
@@ -743,11 +761,11 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                   ((macdOn && candles.length > 33) ? 60 : 0),
               child: _body(),
             ),
-          if (widget.rangeMode) ...[
+          if (usingRange) ...[
             const SizedBox(height: 10),
             Row(
               children: [
-                ...(widget.rangeMode ? tradeRanges : intervals).map((iv) {
+                ...(usingRange ? tradeRanges : intervals).map((iv) {
                   final on = iv.code == interval.code;
                   return GestureDetector(
                     onTap: () => _setInterval(iv),
@@ -782,7 +800,11 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               ],
             ),
             const SizedBox(height: 6),
-            if (candles.length >= 2)
+            Text(
+              '${tradeRangeDuration(interval.code).inHours < 24 ? "1-hour" : "${tradeRangeDuration(interval.code).inDays}-day"} window ending at latest returned candle · ${tradeRangeSpec(interval.code).$1} bars',
+              style: const TextStyle(color: Color(0xFF8A93A6), fontSize: 10),
+            ),
+            if (candles.length >= 2 && candles.first.close != 0)
               Text(
                 '${interval.label} selected · available change ${(candles.last.close - candles.first.close) >= 0 ? '+' : ''}${(candles.last.close - candles.first.close).toStringAsFixed(2)} (${((candles.last.close - candles.first.close) / candles.first.close * 100).toStringAsFixed(2)}%) over ${candles.length} available candles',
                 style: const TextStyle(color: Color(0xFF8A93A6), fontSize: 10),

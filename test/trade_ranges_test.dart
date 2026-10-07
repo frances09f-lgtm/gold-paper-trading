@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gold_paper_trading/chart/candle_chart.dart';
@@ -47,7 +49,39 @@ void main() {
       await t.pumpAndSettle();
       expect(calls.last, 'range:1M');
       expect(find.text('1m'), findsNothing);
+      await t.tap(find.text('Candle intervals'));
+      await t.pumpAndSettle();
+      expect(calls.last, '1min');
+      expect(find.text('1m'), findsOneWidget);
       expect(t.takeException(), isNull);
     },
   );
+  testWidgets('old failed range request cannot overwrite newer chart', (
+    t,
+  ) async {
+    final old = Completer<List<Candle>>();
+    await t.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 650,
+            child: CandleChartPanel(
+              rangeMode: true,
+              loader: (c) async {
+                if (c == 'range:1D') return old.future;
+                return [];
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await t.pump();
+    await t.tap(find.text('1M'));
+    await t.pumpAndSettle();
+    old.completeError(Exception('old range failed'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('old range failed'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
 }

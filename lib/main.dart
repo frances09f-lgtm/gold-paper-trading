@@ -2677,6 +2677,7 @@ class _AiTabState extends State<AiTab> {
   bool _advising = false;
   AdviceResult? _advice;
   String? _adviceErr;
+  String? _adviceTrade; // result line when a sure advice enters a trade
 
   /// Advice button (user request): the Groq brain reads support/
   /// resistance + recent structure and says buy/sell/wait with reasons.
@@ -2698,6 +2699,7 @@ class _AiTabState extends State<AiTab> {
     setState(() {
       _advising = true;
       _adviceErr = null;
+      _adviceTrade = null;
     });
     try {
       final quote = await AutoTrade.liveQuote();
@@ -2723,7 +2725,16 @@ class _AiTabState extends State<AiTab> {
       } catch (_) {}
       final r = await GroqBrain().advise(
           bid: quote.$1, ask: quote.$2, candles: candles, drawnLevels: levels);
-      if (mounted) setState(() => _advice = r);
+      // User request: when the AI is SURE of a direction, start the trade
+      // immediately at market with TP/SL - no waiting for a start price.
+      String? tradeMsg;
+      if (r.sureTrade) tradeMsg = await _enterFromAdvice(r);
+      if (mounted) {
+        setState(() {
+          _advice = r;
+          _adviceTrade = tradeMsg;
+        });
+      }
       await AiLog.add(
           'decision', 'Advice: ${r.verdict.toUpperCase()} - ${r.reasons}');
     } on BrainException catch (e) {
@@ -2735,6 +2746,35 @@ class _AiTabState extends State<AiTab> {
     } finally {
       if (mounted) setState(() => _advising = false);
     }
+  }
+
+  /// Opens a paper trade at the live side price when the advice brain is
+  /// sure. Reuses the manual-ticket path, so the same rails apply (fresh
+  /// price required, daily limits can block). Returns a user-facing line.
+  Future<String?> _enterFromAdvice(AdviceResult r) async {
+    final app = widget.app;
+    final dir = r.verdict; // 'buy' | 'sell'
+    if (app.positions.any((p) => p['status'] == 'open')) {
+      await AiLog.add('decision',
+          'Advice sure (${dir.toUpperCase()}) but a position is already open - no trade');
+      return 'AI is sure, but a position is already open - no new trade.';
+    }
+    final px = app.entrySidePrice(dir); // buy at ask, sell at bid
+    if (px == null || px <= 0) {
+      return 'AI is sure, but there is no fresh live price - not entered.';
+    }
+    final qty = (app.balance * r.sizePct / 100) / px;
+    final err = await app.openPaper(dir, qty, r.tp, r.sl);
+    if (err != null) {
+      await AiLog.add('error', 'Advice trade not entered: $err');
+      return 'AI is sure, but the trade was not entered: $err';
+    }
+    final msg =
+        'AI sure - ${dir == 'buy' ? 'bought' : 'sold'} ${qty.toStringAsFixed(2)} oz @ ${px.toStringAsFixed(2)} - TP ${r.tp!.toStringAsFixed(2)}, SL ${r.sl!.toStringAsFixed(2)}';
+    await AiLog.add('trade', msg);
+    await showForegroundNotification('Oro AI traded', msg);
+    UsageReporter.report('trade_opened', {'src': 'advice'});
+    return msg;
   }
 
   @override
@@ -2843,6 +2883,19 @@ class _AiTabState extends State<AiTab> {
                       _pctChip('SELL', _advice!.sellPct!, cRed),
                   ]),
                 ],
+                if (_adviceTrade != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_adviceTrade!,
+                      style: const TextStyle(
+                          color: cGreen,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ] else if (_advice!.verdict != 'wait' &&
+                    _advice!.confidence != 'high') ...[
+                  const SizedBox(height: 8),
+                  const Text('AI is not sure enough - no trade, read only.',
+                      style: TextStyle(color: cDim, fontSize: 12)),
+                ],
                 const SizedBox(height: 6),
                 const Text('Possibilities, not financial advice.',
                     style: TextStyle(color: cDim, fontSize: 11)),
@@ -2869,6 +2922,19 @@ class _AiTabState extends State<AiTab> {
                     final prefs = await SharedPreferences.getInstance();
                     await AutoTrade.setEnabled(prefs, v);
                     _refresh();
+                    if (v) {
+                      // User request: check right away on switch-on - a sure
+                      // signal enters immediately, not 15 minutes later.
+                      setState(() => _thinking = true);
+                      final result =
+                          await AutoTrade.think(prefs, manual: true);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(result)));
+                        setState(() => _thinking = false);
+                      }
+                      _refresh();
+                    }
                   },
                 ),
               ]),
@@ -2879,7 +2945,7 @@ class _AiTabState extends State<AiTab> {
                     : st.pausedReason != null
                         ? 'Paused: ${st.pausedReason}'
                         : st.enabled
-                            ? 'On - thinks every 15 min, trades only when confident'
+                            ? 'On - thinks every 15 min, enters at market with TP/SL when the AI is sure'
                             : 'Off - nothing trades',
                 style: TextStyle(
                     color: !st.keyConfigured || st.pausedReason != null

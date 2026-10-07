@@ -65,8 +65,10 @@ class AiDecision {
     required this.raw,
   });
 
+  // User request: enter immediately only when the model is SURE.
+  // High confidence trades at market right away; medium and low hold.
   bool get isTrade =>
-      (action == 'buy' || action == 'sell') && confidence != 'low';
+      (action == 'buy' || action == 'sell') && confidence == 'high';
 
   static AiDecision hold(String reason, {String raw = ''}) => AiDecision(
       action: 'hold',
@@ -89,9 +91,28 @@ class AdviceResult {
   /// the model did not return usable numbers - the UI hides them then.
   final int? buyPct;
   final int? sellPct;
+
+  /// 'low' | 'high'. Only high means the model is sure - and a sure
+  /// directional read enters a paper trade immediately at market (user
+  /// request), with the stop/targets below attached.
+  final String confidence;
+  final double? sl; // absolute price, clamped against the real quote
+  final double? tp; // absolute price, clamped against the real quote
+  final double sizePct; // 1..25, % of paper balance as notional
   final String raw;
   const AdviceResult(this.verdict, this.reasons,
-      {this.buyPct, this.sellPct, this.raw = ''});
+      {this.buyPct,
+      this.sellPct,
+      this.confidence = 'low',
+      this.sl,
+      this.tp,
+      this.sizePct = 10,
+      this.raw = ''});
+
+  /// True only when the model is sure of a direction - the app then opens
+  /// the trade immediately at the live price instead of just advising.
+  bool get sureTrade =>
+      (verdict == 'buy' || verdict == 'sell') && confidence == 'high';
 }
 
 class BrainException implements Exception {
@@ -169,10 +190,37 @@ const _systemPrompt =
     '"stop_loss":number,"take_profit":number,"size_pct":number,"reason":"one short sentence"}. '
     'stop_loss and take_profit are absolute prices for the suggested side. '
     'size_pct is the share of the paper balance to use as notional (1-25). '
-    'This is a paper account for learning to trade. Choose hold only when '
-    'the picture is genuinely unclear or mixed; when the data supports a '
-    'reasonable setup with defined risk, take the trade with medium or '
-    'high confidence. Never invent data.';
+    'Trades execute IMMEDIATELY at the live market price with your stop_loss '
+    'and take_profit attached - never hold off for a better entry level; if '
+    'you would wait for a price, answer hold instead. Use high confidence '
+    'only when the setup is genuinely strong: high trades right away, medium '
+    'and low result in no trade. This is a paper account for learning to '
+    'trade. Never invent data.';
+
+/// Clamp stop/targets for a trade at [ref] (a real side price): the stop
+/// lands in 0.3%..2.0% of entry on the correct side, the target is at
+/// least 1.5x the risk distance on the correct side. Missing or wrong-side
+/// values get defaults so a trade ALWAYS carries TP and SL - never fake
+/// numbers, everything derives from the live reference price.
+(double, double) clampTargets(
+    {required bool dirUp, required double ref, double? sl, double? tp}) {
+  const minStop = 0.003, maxStop = 0.02;
+  double defaultStop() => dirUp ? ref * (1 - 0.006) : ref * (1 + 0.006);
+  if (sl == null || (dirUp ? sl >= ref : sl <= ref)) {
+    sl = defaultStop();
+  } else {
+    final dist = (ref - sl).abs() / ref;
+    if (dist < minStop) sl = dirUp ? ref * (1 - minStop) : ref * (1 + minStop);
+    if (dist > maxStop) sl = dirUp ? ref * (1 - maxStop) : ref * (1 + maxStop);
+  }
+  final riskDist = (ref - sl).abs();
+  if (tp == null ||
+      (dirUp ? tp <= ref : tp >= ref) ||
+      (tp - ref).abs() < 1.5 * riskDist) {
+    tp = dirUp ? ref + 1.5 * riskDist : ref - 1.5 * riskDist;
+  }
+  return (sl, tp);
+}
 
 /// Parse + validate + clamp the model output against real prices.
 /// Malformed output becomes a hold - the engine never acts on garbage.
@@ -209,27 +257,12 @@ AiDecision parseDecision(String content, {required double buyRef, required doubl
   }
 
   final ref = action == 'buy' ? buyRef : sellRef;
-  var sl = (j['stop_loss'] as num?)?.toDouble();
-  var tp = (j['take_profit'] as num?)?.toDouble();
   final dirUp = action == 'buy';
-
-  // Clamp the stop into 0.3%..2.0% of entry, on the correct side.
-  const minStop = 0.003, maxStop = 0.02;
-  double defaultStop() => dirUp ? ref * (1 - 0.006) : ref * (1 + 0.006);
-  if (sl == null || (dirUp ? sl >= ref : sl <= ref)) {
-    sl = defaultStop();
-  } else {
-    final dist = (ref - sl).abs() / ref;
-    if (dist < minStop) sl = dirUp ? ref * (1 - minStop) : ref * (1 + minStop);
-    if (dist > maxStop) sl = dirUp ? ref * (1 - maxStop) : ref * (1 + maxStop);
-  }
-  final riskDist = (ref - sl).abs();
-  // Take profit: at least 1.5x the risk distance, on the correct side.
-  if (tp == null ||
-      (dirUp ? tp <= ref : tp >= ref) ||
-      (tp - ref).abs() < 1.5 * riskDist) {
-    tp = dirUp ? ref + 1.5 * riskDist : ref - 1.5 * riskDist;
-  }
+  final (sl, tp) = clampTargets(
+      dirUp: dirUp,
+      ref: ref,
+      sl: (j['stop_loss'] as num?)?.toDouble(),
+      tp: (j['take_profit'] as num?)?.toDouble());
 
   return AiDecision(
     action: action,
@@ -244,13 +277,21 @@ AiDecision parseDecision(String content, {required double buyRef, required doubl
 
 const _adviceSystemPrompt =
     'You are the chart-analysis brain of a gold (XAU/USD) paper-trading app. '
-    'The user asks for your read of the chart - this is advice only and no '
-    'order will be placed from it. Reply with ONLY a minified JSON object, '
-    'no prose: {"verdict":"buy"|"sell"|"wait","buy_pct":number,'
-    '"sell_pct":number,"reasons":"2-3 short sentences"}. '
+    'The user asks for your read of the chart. Reply with ONLY a minified '
+    'JSON object, no prose: {"verdict":"buy"|"sell"|"wait",'
+    '"confidence":"low"|"high","buy_pct":number,"sell_pct":number,'
+    '"stop_loss":number,"take_profit":number,"size_pct":number,'
+    '"reasons":"2-3 short sentences"}. '
     'buy_pct and sell_pct are your estimated probabilities (0-100) of an up '
     'move versus a down move from here - honest estimates, they need not '
     'sum to 100 (uncertainty absorbs the rest). '
+    'When you are SURE (verdict buy or sell with confidence high), the app '
+    'opens the trade IMMEDIATELY at the live market price with your '
+    'stop_loss and take_profit attached, so always include them then as '
+    'absolute prices for the suggested side; size_pct is the share of the '
+    'paper balance to use as notional (1-25). Entries are market orders - '
+    'never advise waiting for a price level. When you are not sure, set '
+    'confidence low or verdict wait and nothing trades. '
     'Base the verdict on the support/resistance levels and recent structure '
     'in the data. Choose wait when the picture is unclear. Never invent data.';
 
@@ -310,7 +351,8 @@ String buildAdvicePrompt({
 
 /// Parse the advice reply. Anything malformed becomes a wait with an
 /// honest note - the UI never shows invented analysis.
-AdviceResult parseAdvice(String content) {
+AdviceResult parseAdvice(String content,
+    {double? buyRef, double? sellRef}) {
   final start = content.indexOf('{');
   final end = content.lastIndexOf('}');
   Map<String, dynamic>? j;
@@ -326,6 +368,25 @@ AdviceResult parseAdvice(String content) {
   var v = j['verdict']?.toString().toLowerCase() ?? 'wait';
   if (v != 'buy' && v != 'sell') v = 'wait';
   final reasons = j['reasons']?.toString().trim() ?? '';
+  var conf = j['confidence']?.toString().toLowerCase() ?? 'low';
+  if (conf != 'high') conf = 'low';
+  var sizePct = (j['size_pct'] as num?)?.toDouble() ?? 10;
+  if (sizePct < 1) sizePct = 1;
+  if (sizePct > 25) sizePct = 25;
+  double? sl = (j['stop_loss'] as num?)?.toDouble();
+  double? tp = (j['take_profit'] as num?)?.toDouble();
+  // A sure directional read trades immediately at market, so clamp its
+  // stop/targets against the real quote exactly like the auto-trade brain.
+  final ref = v == 'buy' ? buyRef : (v == 'sell' ? sellRef : null);
+  if (v != 'wait' && conf == 'high' && ref != null) {
+    final (csl, ctp) =
+        clampTargets(dirUp: v == 'buy', ref: ref, sl: sl, tp: tp);
+    sl = csl;
+    tp = ctp;
+  } else if (v == 'wait' || conf != 'high') {
+    sl = null;
+    tp = null;
+  }
   int? pctOf(String key) {
     final n = j![key];
     if (n is! num) return null;
@@ -337,7 +398,13 @@ AdviceResult parseAdvice(String content) {
 
   return AdviceResult(
       v, reasons.isEmpty ? 'No reasons given.' : reasons,
-      buyPct: pctOf('buy_pct'), sellPct: pctOf('sell_pct'), raw: content);
+      buyPct: pctOf('buy_pct'),
+      sellPct: pctOf('sell_pct'),
+      confidence: conf,
+      sl: sl,
+      tp: tp,
+      sizePct: sizePct,
+      raw: content);
 }
 
 class GroqBrain {
@@ -358,8 +425,10 @@ class GroqBrain {
     return parseDecision(content, buyRef: s.ask, sellRef: s.bid);
   }
 
-  /// Chart advice for the Advice button. Real model call, real data,
-  /// advice only - this never touches AutoTrade or paper positions.
+  /// Chart advice for the Advice button. Real model call, real data.
+  /// When the model is sure of a direction, the caller opens the paper
+  /// trade immediately at market with the returned TP/SL (user request);
+  /// otherwise the read is shown as possibilities, not financial advice.
   Future<AdviceResult> advise({
     required double bid,
     required double ask,
@@ -377,7 +446,7 @@ class GroqBrain {
     if (content == null) {
       throw const BrainException('Groq call failed or rate-limited');
     }
-    return parseAdvice(content);
+    return parseAdvice(content, buyRef: ask, sellRef: bid);
   }
 
   Future<String?> _call(String model, String userPrompt,

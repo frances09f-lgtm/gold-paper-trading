@@ -57,6 +57,14 @@ void main() {
     });
   });
 
+  test('medium confidence no longer trades (user: only when sure)', () {
+    final d = parseDecision(
+        '{"action":"buy","confidence":"medium","stop_loss":3990,"take_profit":4020,"size_pct":10,"reason":"decent setup"}',
+        buyRef: 4000, sellRef: 3999);
+    expect(d.action, 'buy');
+    expect(d.isTrade, isFalse);
+  });
+
   test('AiDecision.hold never trades', () {
     expect(AiDecision.hold('x').isTrade, isFalse);
   });
@@ -95,6 +103,39 @@ void main() {
     expect(p, contains('4044.0'));
   });
 
+
+  group('Advice sure-trade (v37)', () {
+    test('sure directional advice carries clamped TP/SL and trades', () {
+      final r = parseAdvice(
+          '{"verdict":"buy","confidence":"high","buy_pct":80,"sell_pct":15,'
+          '"stop_loss":3000,"take_profit":5000,"size_pct":40,"reasons":"Strong breakout."}',
+          buyRef: 4000, sellRef: 3999);
+      expect(r.sureTrade, isTrue);
+      expect(r.sl, 4000 * 0.98); // clamped into 0.3-2.0%
+      expect(r.tp! - 4000, greaterThanOrEqualTo(1.5 * (4000 - r.sl!)));
+      expect(r.sizePct, 25); // clamped to max
+    });
+    test('low-confidence direction stays read-only', () {
+      final r = parseAdvice(
+          '{"verdict":"sell","confidence":"low","stop_loss":4010,"take_profit":3980,"reasons":"Weak."}',
+          buyRef: 4000, sellRef: 3999);
+      expect(r.sureTrade, isFalse);
+      expect(r.sl, isNull);
+      expect(r.tp, isNull);
+    });
+    test('high-confidence wait never trades', () {
+      final r = parseAdvice(
+          '{"verdict":"wait","confidence":"high","reasons":"Mixed picture."}',
+          buyRef: 4000, sellRef: 3999);
+      expect(r.sureTrade, isFalse);
+      expect(r.sl, isNull);
+    });
+    test('missing confidence defaults to low (no trade)', () {
+      final r = parseAdvice('{"verdict":"buy","reasons":"x"}',
+          buyRef: 4000, sellRef: 3999);
+      expect(r.sureTrade, isFalse);
+    });
+  });
 
   group('Advice prediction percentages (v36)', () {
     test('buy/sell percentages parse through', () {

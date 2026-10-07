@@ -2674,6 +2674,55 @@ class _AiTabState extends State<AiTab> {
   AutoTradeStatus? _status;
   List<AiLogEntry> _log = [];
   bool _thinking = false;
+  bool _advising = false;
+  AdviceResult? _advice;
+  String? _adviceErr;
+
+  /// Advice button (user request): the Groq brain reads support/
+  /// resistance + recent structure and says buy/sell/wait with reasons.
+  /// Advice only - this path can never place a trade.
+  Future<void> _getAdvice() async {
+    setState(() {
+      _advising = true;
+      _adviceErr = null;
+    });
+    try {
+      final quote = await AutoTrade.liveQuote();
+      if (quote == null) {
+        setState(() =>
+            _adviceErr = 'No live price right now - try again in a moment.');
+        return;
+      }
+      final candles = await TwelveDataCandleService(
+              apiKey: MarketDataConfig.apiKey)
+          .fetchCandles(Instrument.xauUsd, interval: '15min', limit: 60);
+      // Levels the user drew on the chart, so the AI reads HIS S/R lines.
+      final prefs = await SharedPreferences.getInstance();
+      final levels = <double>[];
+      try {
+        final raw = prefs.getString('tj_draw_lines');
+        if (raw != null) {
+          for (final e in jsonDecode(raw) as List) {
+            final v = (e as Map)['price'];
+            if (v is num) levels.add(v.toDouble());
+          }
+        }
+      } catch (_) {}
+      final r = await GroqBrain().advise(
+          bid: quote.$1, ask: quote.$2, candles: candles, drawnLevels: levels);
+      if (mounted) setState(() => _advice = r);
+      await AiLog.add(
+          'decision', 'Advice: ${r.verdict.toUpperCase()} - ${r.reasons}');
+    } on BrainException catch (e) {
+      if (mounted) setState(() => _adviceErr = 'AI unavailable (${e.message})');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _adviceErr = 'Could not get advice right now.');
+      }
+    } finally {
+      if (mounted) setState(() => _advising = false);
+    }
+  }
 
   @override
   void initState() {
@@ -2701,9 +2750,83 @@ class _AiTabState extends State<AiTab> {
     if (st == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    const gold = Color(0xFFF5C242);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Card(
+          color: cCard,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.lightbulb_outline, color: cDim, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                    child: Text('AI chart advice',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15))),
+              ]),
+              const SizedBox(height: 4),
+              const Text(
+                  'Reads support/resistance and recent structure, then advises buy, sell or wait. Possibilities from the chart data - not financial advice.',
+                  style: TextStyle(color: cDim, fontSize: 12)),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _advising || !st.keyConfigured
+                      ? null
+                      : _getAdvice,
+                  icon: _advising
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.insights, size: 18),
+                  label: Text(_advising ? 'Reading the chart...' : 'Get advice'),
+                ),
+              ),
+              if (_adviceErr != null) ...[
+                const SizedBox(height: 8),
+                Text(_adviceErr!,
+                    style: const TextStyle(color: cRed, fontSize: 12)),
+              ],
+              if (_advice != null && _adviceErr == null) ...[
+                const SizedBox(height: 10),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _advice!.verdict == 'buy'
+                          ? cGreen
+                          : _advice!.verdict == 'sell'
+                              ? cRed
+                              : gold,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(_advice!.verdict.toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: Text(_advice!.reasons,
+                          style:
+                              const TextStyle(fontSize: 12, height: 1.35))),
+                ]),
+                const SizedBox(height: 6),
+                const Text('Possibilities, not financial advice.',
+                    style: TextStyle(color: cDim, fontSize: 11)),
+              ],
+            ]),
+          ),
+        ),
+        const SizedBox(height: 14),
         Card(
           color: cCard,
           child: Padding(

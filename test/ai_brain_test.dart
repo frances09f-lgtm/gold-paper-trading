@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gold_paper_trading/market_data/models.dart';
 import 'package:gold_paper_trading/ai_brain.dart';
 
 void main() {
@@ -58,5 +59,39 @@ void main() {
 
   test('AiDecision.hold never trades', () {
     expect(AiDecision.hold('x').isTrade, isFalse);
+  });
+
+  test('parseAdvice reads a clean verdict', () {
+    final r = parseAdvice('{"verdict":"buy","reasons":"Price holding above support."}');
+    expect(r.verdict, 'buy');
+    expect(r.reasons, contains('support'));
+  });
+  
+  test('parseAdvice demotes unknown verdicts to wait', () {
+    final r = parseAdvice('{"verdict":"moon","reasons":"x"}');
+    expect(r.verdict, 'wait');
+  });
+  
+  test('parseAdvice survives garbage', () {
+    final r = parseAdvice('not json at all');
+    expect(r.verdict, 'wait');
+    expect(r.reasons, isNotEmpty);
+  });
+  
+  test('buildAdvicePrompt includes S/R and drawn levels', () {
+    final candles = List.generate(
+        60,
+        (i) => Candle(
+              time: DateTime.fromMillisecondsSinceEpoch(i * 900000),
+              open: 4000 + i.toDouble(),
+              high: 4002 + i.toDouble(),
+              low: 3998 + i.toDouble(),
+              close: 4001 + i.toDouble(),
+            ));
+    final p = buildAdvicePrompt(bid: 4059.5, ask: 4060.5, candles: candles, drawnLevels: [4010.0, 4044.0]);
+    expect(p, contains('resistance'));
+    expect(p, contains('support'));
+    expect(p, contains('4010.0'));
+    expect(p, contains('4044.0'));
   });
 }

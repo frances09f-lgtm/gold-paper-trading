@@ -78,6 +78,16 @@ class AiDecision {
       raw: raw);
 }
 
+/// Chart advice (user-facing "Advice" button): a read of support/
+/// resistance and recent structure. ADVICE ONLY - nothing here places
+/// trades; the UI shows it as possibilities, not financial advice.
+class AdviceResult {
+  final String verdict; // 'buy' | 'sell' | 'wait'
+  final String reasons;
+  final String raw;
+  const AdviceResult(this.verdict, this.reasons, {this.raw = ''});
+}
+
 class BrainException implements Exception {
   final String message;
   const BrainException(this.message);
@@ -226,6 +236,91 @@ AiDecision parseDecision(String content, {required double buyRef, required doubl
   );
 }
 
+const _adviceSystemPrompt =
+    'You are the chart-analysis brain of a gold (XAU/USD) paper-trading app. '
+    'The user asks for your read of the chart - this is advice only and no '
+    'order will be placed from it. Reply with ONLY a minified JSON object, '
+    'no prose: {"verdict":"buy"|"sell"|"wait","reasons":"2-3 short sentences"}. '
+    'Base the verdict on the support/resistance levels and recent structure '
+    'in the data. Choose wait when the picture is unclear. Never invent data.';
+
+/// Prompt for the Advice button: same real market data as the auto-trade
+/// brain, plus swing support/resistance and the user's drawn chart levels.
+String buildAdvicePrompt({
+  required double bid,
+  required double ask,
+  required List<Candle> candles,
+  required List<double> drawnLevels,
+}) {
+  final b = StringBuffer();
+  b.writeln('Instrument: XAU/USD (gold spot).');
+  b.writeln(
+      'Live quote: bid ${bid.toStringAsFixed(2)}, ask ${ask.toStringAsFixed(2)}.');
+  final cs = candles;
+  if (cs.length >= 50) {
+    final s20 = sma(cs, 20).last;
+    final e50 = ema(cs, 50).last;
+    final r14 = rsi(cs, 14).last;
+    final macd = macdLine(cs);
+    final a = atr(cs, 14);
+    b.writeln('15-minute candles, last ${cs.length}:');
+    b.writeln(
+        '  SMA20 ${s20.toStringAsFixed(2)} | EMA50 ${e50.toStringAsFixed(2)} | RSI14 ${r14.toStringAsFixed(1)} | MACD ${macd.isEmpty ? 'n/a' : macd.last.toStringAsFixed(2)} | ATR14 ${a?.toStringAsFixed(2) ?? 'n/a'}');
+    final n = cs.length;
+    final last = cs.sublist(n - 10);
+    final prev = cs.sublist(n - 20, n - 10);
+    double hiOf(List<Candle> l) =>
+        l.fold(-double.infinity, (x, c) => x > c.high ? x : c.high);
+    double loOf(List<Candle> l) =>
+        l.fold(double.infinity, (x, c) => x < c.low ? x : c.low);
+    b.writeln(
+        '  Structure: last10 high ${hiOf(last).toStringAsFixed(1)} low ${loOf(last).toStringAsFixed(1)} | prev10 high ${hiOf(prev).toStringAsFixed(1)} low ${loOf(prev).toStringAsFixed(1)}');
+    // Swing support/resistance from the last 48 candles.
+    final win = cs.sublist(n >= 48 ? n - 48 : 0);
+    final swingHi = hiOf(win);
+    final swingLo = loOf(win);
+    b.writeln(
+        '  Swing range (last ${win.length} candles): resistance ${swingHi.toStringAsFixed(1)}, support ${swingLo.toStringAsFixed(1)}.');
+    b.writeln('  Last 12 candles (time,o,h,l,c):');
+    for (final c in cs.sublist(n - 12)) {
+      b.writeln(
+          '  ${c.time.toIso8601String()},${c.open.toStringAsFixed(2)},${c.high.toStringAsFixed(2)},${c.low.toStringAsFixed(2)},${c.close.toStringAsFixed(2)}');
+    }
+  } else {
+    b.writeln('Only ${cs.length} candles available - thin data.');
+  }
+  if (drawnLevels.isNotEmpty) {
+    final sorted = [...drawnLevels]..sort();
+    b.writeln(
+        'User-drawn chart levels: ${sorted.map((e) => e.toStringAsFixed(1)).join(', ')}.');
+  }
+  b.writeln('Give your read: buy, sell, or wait, with short reasons.');
+  return b.toString();
+}
+
+/// Parse the advice reply. Anything malformed becomes a wait with an
+/// honest note - the UI never shows invented analysis.
+AdviceResult parseAdvice(String content) {
+  final start = content.indexOf('{');
+  final end = content.lastIndexOf('}');
+  Map<String, dynamic>? j;
+  if (start >= 0 && end > start) {
+    try {
+      final decoded = jsonDecode(content.substring(start, end + 1));
+      if (decoded is Map<String, dynamic>) j = decoded;
+    } catch (_) {}
+  }
+  if (j == null) {
+    return AdviceResult('wait', 'Could not read the AI answer.', raw: content);
+  }
+  var v = j['verdict']?.toString().toLowerCase() ?? 'wait';
+  if (v != 'buy' && v != 'sell') v = 'wait';
+  final reasons = j['reasons']?.toString().trim() ?? '';
+  return AdviceResult(
+      v, reasons.isEmpty ? 'No reasons given.' : reasons,
+      raw: content);
+}
+
 class GroqBrain {
   final http.Client _client;
   GroqBrain({http.Client? client}) : _client = client ?? http.Client();
@@ -244,7 +339,30 @@ class GroqBrain {
     return parseDecision(content, buyRef: s.ask, sellRef: s.bid);
   }
 
-  Future<String?> _call(String model, String userPrompt) async {
+  /// Chart advice for the Advice button. Real model call, real data,
+  /// advice only - this never touches AutoTrade or paper positions.
+  Future<AdviceResult> advise({
+    required double bid,
+    required double ask,
+    required List<Candle> candles,
+    List<double> drawnLevels = const [],
+  }) async {
+    if (AiConfig.groqApiKey.isEmpty) {
+      throw const BrainException('GROQ_API_KEY is not configured in this build');
+    }
+    final user = buildAdvicePrompt(
+        bid: bid, ask: ask, candles: candles, drawnLevels: drawnLevels);
+    var content = await _call(AiConfig.model, user, system: _adviceSystemPrompt);
+    content ??=
+        await _call(AiConfig.fallbackModel, user, system: _adviceSystemPrompt);
+    if (content == null) {
+      throw const BrainException('Groq call failed or rate-limited');
+    }
+    return parseAdvice(content);
+  }
+
+  Future<String?> _call(String model, String userPrompt,
+      {String? system}) async {
     try {
       final r = await _client
           .post(Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
@@ -255,7 +373,7 @@ class GroqBrain {
               body: jsonEncode({
                 'model': model,
                 'messages': [
-                  {'role': 'system', 'content': _systemPrompt},
+                  {'role': 'system', 'content': system ?? _systemPrompt},
                   {'role': 'user', 'content': userPrompt},
                 ],
                 'temperature': 0.2,

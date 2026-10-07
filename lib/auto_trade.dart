@@ -360,6 +360,10 @@ class AutoTrade {
   // anon key was rotated out at Supabase and 401s.
   static const _sbKey = 'sb_publishable_oNw5xcfdpesEihrdmFXfgQ_HKgsVYAi';
 
+  /// Live XAU/USD bid/ask for one-off reads (Advice button). Null when
+  /// the feed is stale or unreachable - callers must say so honestly.
+  static Future<(double, double)?> liveQuote() => _fetchQuote();
+
   static Future<(double, double)?> _fetchQuote() async {
     try {
       final r = await http

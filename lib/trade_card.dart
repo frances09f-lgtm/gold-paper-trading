@@ -33,6 +33,7 @@ class TradeExplanationCard extends StatelessWidget {
     super.key,
     required this.data,
     required this.fresh,
+    this.historical = false,
   });
   String f(double? v) => v == null ? 'Not set' : v.toStringAsFixed(2);
   @override

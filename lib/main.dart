@@ -10,6 +10,7 @@ import 'market_data/twelve_data_candles.dart';
 import 'market_data/swissquote_provider.dart';
 import 'chart/candle_chart.dart';
 import 'analytics.dart';
+import 'trade_card.dart';
 import 'ai_brain.dart';
 import 'alerts.dart';
 import 'auto_trade.dart';
@@ -1698,6 +1699,8 @@ class _PositionsTabState extends State<PositionsTab> {
           onPressed: (!app.priceFresh || isClosing) ? null : () => _confirmClose(t),
           child: Text(isClosing ? 'Closing...' : 'Close Trade: ${money(live, sign: true)}'),
         ),
+        const SizedBox(height: 10),
+        TradeExplanationCard(data: TradeExplanation(entry:(t['entry'] as num).toDouble(),qty:qty,buy:buy,stop:sl,target:tp,spread:app.spread),fresh:app.priceFresh),
         if (isExpanded) ...[
           const Divider(color: cBorder, height: 24),
           _row('Order ID', id),
@@ -1972,6 +1975,8 @@ class _PositionsTabState extends State<PositionsTab> {
             ]),
           ),
           if (isExp) ...[
+            const SizedBox(height: 8),
+            TradeExplanationCard(data:TradeExplanation(entry:(t['entry'] as num).toDouble(),qty:(t['qty'] as num).toDouble(),buy:buy,stop:(t['sl'] as num?)?.toDouble(),target:(t['tp'] as num?)?.toDouble()),fresh:false,historical:true),
             const SizedBox(height: 6),
             Text(
               'Entry ${fmt((t['entry'] as num).toDouble())} → Exit ${t['exit'] == null ? '-' : fmt((t['exit'] as num).toDouble())}'

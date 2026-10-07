@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../analysis.dart';
 import '../market_data/models.dart';
 import 'indicators.dart';
@@ -58,8 +60,12 @@ class CandleChartPanel extends StatefulWidget {
   /// of the fixed in-page height.
   final bool expand;
 
-  const CandleChartPanel(
-      {super.key, this.loader, this.livePrice, this.expand = false});
+  const CandleChartPanel({
+    super.key,
+    this.loader,
+    this.livePrice,
+    this.expand = false,
+  });
 
   @override
   State<CandleChartPanel> createState() => CandleChartPanelState();
@@ -78,6 +84,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   bool sma200On = false;
   bool rsiOn = false;
   bool macdOn = false;
+  final Set<int> extraEmas = {};
+  bool bollingerOn = false;
   bool drawMode = false;
   bool trendMode = false;
   final List<DrawnLine> hLines = []; // user-drawn named price levels
@@ -154,29 +162,45 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           final list = jsonDecode(raw) as List;
           hLines
             ..clear()
-            ..addAll(list.map((e) => DrawnLine(
-                (e['p'] as num).toDouble(), e['n']?.toString() ?? 'Level')));
+            ..addAll(
+              list.map(
+                (e) => DrawnLine(
+                  (e['p'] as num).toDouble(),
+                  e['n']?.toString() ?? 'Level',
+                ),
+              ),
+            );
         }
         if (rawT != null) {
           final list = jsonDecode(rawT) as List;
           trendLines
             ..clear()
-            ..addAll(list.map((e) => TrendLine(
-                DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
-                (e['p1'] as num).toDouble(),
-                DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
-                (e['p2'] as num).toDouble())));
+            ..addAll(
+              list.map(
+                (e) => TrendLine(
+                  DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
+                  (e['p1'] as num).toDouble(),
+                  DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
+                  (e['p2'] as num).toDouble(),
+                ),
+              ),
+            );
         }
         final rawF = prefs.getString('tj_draw_fibs');
         if (rawF != null) {
           final list = jsonDecode(rawF) as List;
           fibs
             ..clear()
-            ..addAll(list.map((e) => TrendLine(
-                DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
-                (e['p1'] as num).toDouble(),
-                DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
-                (e['p2'] as num).toDouble())));
+            ..addAll(
+              list.map(
+                (e) => TrendLine(
+                  DateTime.fromMillisecondsSinceEpoch(e['t1'] as int),
+                  (e['p1'] as num).toDouble(),
+                  DateTime.fromMillisecondsSinceEpoch(e['t2'] as int),
+                  (e['p2'] as num).toDouble(),
+                ),
+              ),
+            );
         }
       });
     } catch (_) {}
@@ -186,15 +210,20 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          'tj_draw_fibs',
-          jsonEncode(fibs
-              .map((e) => {
-                    't1': e.t1.millisecondsSinceEpoch,
-                    'p1': e.p1,
-                    't2': e.t2.millisecondsSinceEpoch,
-                    'p2': e.p2,
-                  })
-              .toList()));
+        'tj_draw_fibs',
+        jsonEncode(
+          fibs
+              .map(
+                (e) => {
+                  't1': e.t1.millisecondsSinceEpoch,
+                  'p1': e.p1,
+                  't2': e.t2.millisecondsSinceEpoch,
+                  'p2': e.p2,
+                },
+              )
+              .toList(),
+        ),
+      );
     } catch (_) {}
   }
 
@@ -202,15 +231,20 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          'tj_draw_trends',
-          jsonEncode(trendLines
-              .map((e) => {
-                    't1': e.t1.millisecondsSinceEpoch,
-                    'p1': e.p1,
-                    't2': e.t2.millisecondsSinceEpoch,
-                    'p2': e.p2,
-                  })
-              .toList()));
+        'tj_draw_trends',
+        jsonEncode(
+          trendLines
+              .map(
+                (e) => {
+                  't1': e.t1.millisecondsSinceEpoch,
+                  'p1': e.p1,
+                  't2': e.t2.millisecondsSinceEpoch,
+                  'p2': e.p2,
+                },
+              )
+              .toList(),
+        ),
+      );
     } catch (_) {}
   }
 
@@ -243,19 +277,26 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF151A22),
-        title: const Text('Clear all drawings?',
-            style: TextStyle(color: Colors.white, fontSize: 15)),
+        title: const Text(
+          'Clear all drawings?',
+          style: TextStyle(color: Colors.white, fontSize: 15),
+        ),
         content: const Text(
-            'This removes every drawn level, trend line and fib on the chart.',
-            style: TextStyle(color: Color(0xFF8A93A6), fontSize: 13)),
+          'This removes every drawn level, trend line and fib on the chart.',
+          style: TextStyle(color: Color(0xFF8A93A6), fontSize: 13),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child:
-                  const Text('Clear', style: TextStyle(color: Color(0xFFF27EA9)))),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Clear',
+              style: TextStyle(color: Color(0xFFF27EA9)),
+            ),
+          ),
         ],
       ),
     );
@@ -266,10 +307,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          'tj_draw_lines',
-          jsonEncode(hLines
-              .map((e) => {'p': e.price, 'n': e.name})
-              .toList()));
+        'tj_draw_lines',
+        jsonEncode(hLines.map((e) => {'p': e.price, 'n': e.name}).toList()),
+      );
     } catch (_) {}
   }
 
@@ -288,7 +328,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     lo -= pad;
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     final range = hi - lo;
-    final idx = hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
+    final idx = hLines.indexWhere(
+      (l) => (l.price - price).abs() < range * 0.02,
+    );
     if (idx < 0) {
       // no horizontal level near - try trend lines (pixel-space distance)
       final tIdx = _trendHit(pos, Size(size.width, plotH), hi, lo);
@@ -299,16 +341,20 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           context: context,
           builder: (dCtx) => AlertDialog(
             backgroundColor: const Color(0xFF161B24),
-            title: const Text('Fibonacci retracement',
-                style: TextStyle(fontSize: 16)),
+            title: const Text(
+              'Fibonacci retracement',
+              style: TextStyle(fontSize: 16),
+            ),
             content: const Text('Delete this fibonacci retracement?'),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(dCtx, false),
-                  child: const Text('Cancel')),
+                onPressed: () => Navigator.pop(dCtx, false),
+                child: const Text('Cancel'),
+              ),
               FilledButton(
-                  onPressed: () => Navigator.pop(dCtx, true),
-                  child: const Text('Delete')),
+                onPressed: () => Navigator.pop(dCtx, true),
+                child: const Text('Delete'),
+              ),
             ],
           ),
         );
@@ -326,11 +372,13 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           content: const Text('Delete this trend line?'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dCtx, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dCtx, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(dCtx, true),
-                child: const Text('Delete')),
+              onPressed: () => Navigator.pop(dCtx, true),
+              child: const Text('Delete'),
+            ),
           ],
         ),
       );
@@ -346,25 +394,33 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       context: context,
       builder: (dCtx) => AlertDialog(
         backgroundColor: const Color(0xFF161B24),
-        title: Text('Level at ${line.price.toStringAsFixed(2)}',
-            style: const TextStyle(fontSize: 16)),
+        title: Text(
+          'Level at ${line.price.toStringAsFixed(2)}',
+          style: const TextStyle(fontSize: 16),
+        ),
         content: TextField(
           controller: ctrl,
           autofocus: true,
           decoration: const InputDecoration(
-              hintText: 'Name (e.g. Support, Resistance)'),
+            hintText: 'Name (e.g. Support, Resistance)',
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dCtx, 'delete'),
-              child: const Text('Delete',
-                  style: TextStyle(color: Color(0xFFFF6B6B)))),
+            onPressed: () => Navigator.pop(dCtx, 'delete'),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Color(0xFFFF6B6B)),
+            ),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(dCtx),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dCtx),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dCtx, 'save'),
-              child: const Text('Save')),
+            onPressed: () => Navigator.pop(dCtx, 'save'),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -372,8 +428,10 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       if (act == 'delete') {
         hLines.removeAt(idx);
       } else if (act == 'save') {
-        hLines[idx] =
-            DrawnLine(line.price, ctrl.text.trim().isEmpty ? 'Level' : ctrl.text.trim());
+        hLines[idx] = DrawnLine(
+          line.price,
+          ctrl.text.trim().isEmpty ? 'Level' : ctrl.text.trim(),
+        );
       }
     });
     _saveLines();
@@ -443,115 +501,216 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Text('XAU/USD',
+          Row(
+            children: [
+              const Text(
+                'XAU/USD',
                 style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(children: [
-                  _indChip('SMA', smaOn, const Color(0xFF4EA1FF),
-                () => setState(() => smaOn = !smaOn)),
-            _indChip('EMA', emaOn, const Color(0xFFFF9F43),
-                () => setState(() => emaOn = !emaOn)),
-            _indChip('200', sma200On, const Color(0xFF6FD3E0),
-                () => setState(() => sma200On = !sma200On)),
-            _indChip('RSI', rsiOn, const Color(0xFFB78CFF),
-                () => setState(() => rsiOn = !rsiOn)),
-            _indChip('MACD', macdOn, const Color(0xFFF27EA9),
-                () => setState(() => macdOn = !macdOn)),
-            _indChip('Draw', drawMode, const Color(0xFF5EE0A0),
-                () => setState(() {
-                      drawMode = !drawMode;
-                      if (drawMode) {
-                        trendMode = false;
-                        fibMode = false;
-                      }
-                    })),
-            _indChip('Trend', trendMode, const Color(0xFF6FD3E0),
-                () => setState(() {
-                      trendMode = !trendMode;
-                      if (trendMode) {
-                        drawMode = false;
-                        fibMode = false;
-                      }
-                      pendingTrend = null;
-                    })),
-            _indChip('Fib', fibMode, const Color(0xFFFFD166),
-                () => setState(() {
-                      fibMode = !fibMode;
-                      if (fibMode) {
-                        drawMode = false;
-                        trendMode = false;
-                      }
-                      pendingFib = null;
-                    })),
-                ]),
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            if (loading)
-              const SizedBox(
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      PopupMenuButton<String>(
+                        tooltip: 'Indicators',
+                        onSelected: (v) => setState(() {
+                          switch (v) {
+                            case 'SMA20':
+                              smaOn = !smaOn;
+                              break;
+                            case 'SMA200':
+                              sma200On = !sma200On;
+                              break;
+                            case 'EMA50':
+                              emaOn = !emaOn;
+                              break;
+                            case 'RSI14':
+                              rsiOn = !rsiOn;
+                              break;
+                            case 'MACD':
+                              macdOn = !macdOn;
+                              break;
+                            case 'BB20':
+                              bollingerOn = !bollingerOn;
+                              break;
+                            default:
+                              final n = int.parse(v.substring(3));
+                              extraEmas.contains(n)
+                                  ? extraEmas.remove(n)
+                                  : extraEmas.add(n);
+                          }
+                        }),
+                        itemBuilder: (_) => [
+                          for (final item in <(String, String, bool)>[
+                            ('SMA20', 'SMA 20', smaOn),
+                            ('SMA200', 'SMA 200', sma200On),
+                            ('EMA9', 'EMA 9', extraEmas.contains(9)),
+                            ('EMA21', 'EMA 21', extraEmas.contains(21)),
+                            ('EMA50', 'EMA 50', emaOn),
+                            ('EMA200', 'EMA 200', extraEmas.contains(200)),
+                            ('RSI14', 'RSI 14', rsiOn),
+                            ('MACD', 'MACD 12/26/9', macdOn),
+                            ('BB20', 'Bollinger 20 / 2', bollingerOn),
+                          ])
+                            CheckedPopupMenuItem(
+                              value: item.$1,
+                              checked: item.$3,
+                              child: Text(item.$2),
+                            ),
+                        ],
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Indicators',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_drop_down,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      _indChip(
+                        'Draw',
+                        drawMode,
+                        const Color(0xFF5EE0A0),
+                        () => setState(() {
+                          drawMode = !drawMode;
+                          if (drawMode) {
+                            trendMode = false;
+                            fibMode = false;
+                          }
+                        }),
+                      ),
+                      _indChip(
+                        'Trend',
+                        trendMode,
+                        const Color(0xFF6FD3E0),
+                        () => setState(() {
+                          trendMode = !trendMode;
+                          if (trendMode) {
+                            drawMode = false;
+                            fibMode = false;
+                          }
+                          pendingTrend = null;
+                        }),
+                      ),
+                      _indChip(
+                        'Fib',
+                        fibMode,
+                        const Color(0xFFFFD166),
+                        () => setState(() {
+                          fibMode = !fibMode;
+                          if (fibMode) {
+                            drawMode = false;
+                            trendMode = false;
+                          }
+                          pendingFib = null;
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (loading)
+                const SizedBox(
                   width: 12,
                   height: 12,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFFF5C242))),
-            if (_hasDrawings) ...[
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: _confirmClearAll,
-                child: const Padding(
-                  padding: EdgeInsets.all(2),
-                  child: Icon(Icons.delete_sweep,
-                      size: 18, color: Color(0xFFF27EA9)),
+                    strokeWidth: 2,
+                    color: Color(0xFFF5C242),
+                  ),
                 ),
-              ),
-            ],
-            if (!widget.expand) ...[
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => FullscreenChartPage(
+              if (_hasDrawings) ...[
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: _confirmClearAll,
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(
+                      Icons.delete_sweep,
+                      size: 18,
+                      color: Color(0xFFF27EA9),
+                    ),
+                  ),
+                ),
+              ],
+              if (!widget.expand) ...[
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => FullscreenChartPage(
                         loader: widget.loader,
-                        livePrice: widget.livePrice))),
-                child: const Padding(
-                  padding: EdgeInsets.all(2),
-                  child: Icon(Icons.fullscreen,
-                      size: 18, color: Color(0xFF8A93A6)),
+                        livePrice: widget.livePrice,
+                      ),
+                    ),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(
+                      Icons.fullscreen,
+                      size: 18,
+                      color: Color(0xFF8A93A6),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ],
-          ]),
+          ),
           const SizedBox(height: 6),
-          Row(children: [
-            ...intervals.map((iv) {
-              final on = iv.code == interval.code;
-              return GestureDetector(
-                onTap: () => _setInterval(iv),
-                child: Container(
-                  margin: const EdgeInsets.only(right: 4),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: on ? const Color(0xFFF5C242) : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
+          Row(
+            children: [
+              ...intervals.map((iv) {
+                final on = iv.code == interval.code;
+                return GestureDetector(
+                  onTap: () => _setInterval(iv),
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: on ? const Color(0xFFF5C242) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
                         color: on
                             ? const Color(0xFFF5C242)
-                            : const Color(0xFF2A3140)),
-                  ),
-                  child: Text(iv.label,
+                            : const Color(0xFF2A3140),
+                      ),
+                    ),
+                    child: Text(
+                      iv.label,
                       style: TextStyle(
-                          color: on ? Colors.black : const Color(0xFF8A93A6),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
-                ),
-              );
-            }),
-          ]),
+                        color: on ? Colors.black : const Color(0xFF8A93A6),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
           const SizedBox(height: 6),
           _legend(dim),
           const SizedBox(height: 4),
@@ -559,10 +718,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             Expanded(child: _body())
           else
             SizedBox(
-                height: 220 +
-                    ((rsiOn && candles.length > 14) ? 60 : 0) +
-                    ((macdOn && candles.length > 33) ? 60 : 0),
-                child: _body()),
+              height:
+                  220 +
+                  ((rsiOn && candles.length > 14) ? 60 : 0) +
+                  ((macdOn && candles.length > 33) ? 60 : 0),
+              child: _body(),
+            ),
           if (candles.length >= 50) _biasStrip(),
         ],
       ),
@@ -580,57 +741,83 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     final color = r.bias == TrendBias.bullish
         ? green
         : r.bias == TrendBias.bearish
-            ? red
-            : dim;
+        ? red
+        : dim;
     final label = r.bias == TrendBias.bullish
         ? 'Bullish'
         : r.bias == TrendBias.bearish
-            ? 'Bearish'
-            : 'Neutral';
+        ? 'Bearish'
+        : 'Neutral';
     return GestureDetector(
       onTap: () => setState(() => biasExpanded = !biasExpanded),
-      child:
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SizedBox(height: 6),
-        Row(children: [
-          Icon(Icons.circle, size: 8, color: color),
-          const SizedBox(width: 6),
-          const Text('Trend bias: ',
-              style: TextStyle(color: dim, fontSize: 11)),
-          Text(label,
-              style: TextStyle(
-                  color: color, fontSize: 11, fontWeight: FontWeight.w700)),
-          const Spacer(),
-          Icon(biasExpanded ? Icons.expand_less : Icons.expand_more,
-              size: 16, color: dim),
-        ]),
-        if (biasExpanded) ...[
-          const SizedBox(height: 4),
-          for (final f in r.factors)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.circle, size: 8, color: color),
+              const SizedBox(width: 6),
+              const Text(
+                'Trend bias: ',
+                style: TextStyle(color: dim, fontSize: 11),
+              ),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                biasExpanded ? Icons.expand_less : Icons.expand_more,
+                size: 16,
+                color: dim,
+              ),
+            ],
+          ),
+          if (biasExpanded) ...[
+            const SizedBox(height: 4),
+            for (final f in r.factors)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(f.score > 0 ? '+' : (f.score < 0 ? '-' : '·'),
-                        style: TextStyle(
-                            color: f.score > 0
-                                ? green
-                                : (f.score < 0 ? red : dim),
-                            fontSize: 11)),
+                    Text(
+                      f.score > 0 ? '+' : (f.score < 0 ? '-' : '·'),
+                      style: TextStyle(
+                        color: f.score > 0 ? green : (f.score < 0 ? red : dim),
+                        fontSize: 11,
+                      ),
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
-                        child: Text(f.text,
-                            style: const TextStyle(
-                                color: Color(0xFFB9C0CE), fontSize: 11))),
-                  ]),
-            ),
-          const SizedBox(height: 4),
-          const Text('Rule-based read of the current chart. Not a prediction.',
+                      child: Text(
+                        f.text,
+                        style: const TextStyle(
+                          color: Color(0xFFB9C0CE),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 4),
+            const Text(
+              'Rule-based read of the current chart. Not a prediction.',
               style: TextStyle(
-                  color: dim, fontSize: 10, fontStyle: FontStyle.italic)),
+                color: dim,
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -645,11 +832,14 @@ class CandleChartPanelState extends State<CandleChartPanel> {
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: on ? color : const Color(0xFF2A3140)),
           ),
-          child: Text(label,
-              style: TextStyle(
-                  color: on ? color : const Color(0xFF8A93A6),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600)),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: on ? color : const Color(0xFF8A93A6),
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       );
 
@@ -661,17 +851,20 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       c = candles.last;
     }
     if (error != null) {
-      return Text(error!,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Color(0xFFE0654F), fontSize: 11));
+      return Text(
+        error!,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Color(0xFFE0654F), fontSize: 11),
+      );
     }
     if (c == null) {
       return Text(
-          widget.loader == null
-              ? 'Candle feed not configured (set MARKET_DATA_API_KEY)'
-              : 'Loading real candles...',
-          style: TextStyle(color: dim, fontSize: 11));
+        widget.loader == null
+            ? 'Candle feed not configured (set MARKET_DATA_API_KEY)'
+            : 'Loading real candles...',
+        style: TextStyle(color: dim, fontSize: 11),
+      );
     }
     final up = c.close >= c.open;
     final col = up ? const Color(0xFF2EC27E) : const Color(0xFFE0654F);
@@ -685,88 +878,103 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   Widget _body() {
     if (widget.loader == null) {
       return const Center(
-          child: Text('No candle source configured.\nReal data only - no demo bars.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+        child: Text(
+          'No candle source configured.\nReal data only - no demo bars.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12),
+        ),
+      );
     }
     if (candles.isEmpty && loading) {
       return const Center(
-          child: Text('Fetching candles from Twelve Data...',
-              style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+        child: Text(
+          'Fetching candles from Twelve Data...',
+          style: TextStyle(color: Color(0xFF8A93A6), fontSize: 12),
+        ),
+      );
     }
     if (candles.isEmpty) {
       // The legend above the chart already shows the error detail.
       return const Center(
-          child: Text('No candles returned',
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: Color(0xFF8A93A6), fontSize: 12)));
+        child: Text(
+          'No candles returned',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0xFF8A93A6), fontSize: 12),
+        ),
+      );
     }
-    return LayoutBuilder(builder: (context, cons) {
-      return GestureDetector(
-        // Draw mode keeps pan for drag-moving levels; outside Draw, a
-        // one-finger drag scrolls the chart and pinch zooms it.
-        onPanDown: drawMode
-            ? (d) => _dragLineStart(
-                d.localPosition, Size(cons.maxWidth, cons.maxHeight))
-            : null,
-        onPanUpdate: drawMode
-            ? (d) => _dragLineUpdate(
-                d.localPosition, Size(cons.maxWidth, cons.maxHeight))
-            : null,
-        onPanEnd: drawMode ? (_) => _dragLineEnd() : null,
-        onScaleStart: drawMode
-            ? null
-            : (d) {
-                _panStartScroll = scrollCandles;
-                _scaleStartVC = _vc.toDouble();
-              },
-        onScaleUpdate: drawMode
-            ? null
-            : (d) {
-                final n = candles.length;
-                if (n == 0) return;
-                if (d.pointerCount >= 2) {
-                  setState(() {
-                    final v = (_scaleStartVC / d.scale).round();
-                    visibleOverride = v < 15 ? 15 : (v > n ? n : v);
-                  });
-                } else {
-                  final plotW = cons.maxWidth - 52.0;
-                  final step = plotW / _vc;
-                  if (step <= 0) return;
-                  setState(() {
-                    final maxScroll =
-                        (n - _vc) > 0 ? (n - _vc).toDouble() : 0.0;
-                    scrollCandles =
-                        (_panStartScroll - d.focalPointDelta.dx / step)
-                            .clamp(0.0, maxScroll);
-                  });
-                }
-              },
-        onTapDown: (d) {
-          if (trendMode) {
-            _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          } else if (fibMode) {
-            _fibAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          } else {
-            _pick(d.localPosition, cons.maxWidth);
-          }
-        },
-        onTapUp: (d) {
-          // Draw-mode add/remove lives on tap-UP so a drag-move (pan wins
-          // the arena) never deletes the line being moved.
-          if (drawMode) {
-            _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-          }
-        },
-        onLongPressStart: (d) {
-          _editLineAt(
-              d.localPosition, Size(cons.maxWidth, cons.maxHeight));
-        },
-        child: CustomPaint(
-          size: Size(cons.maxWidth, cons.maxHeight),
-          painter: CandlePainter(
+    return LayoutBuilder(
+      builder: (context, cons) {
+        return GestureDetector(
+          // Draw mode keeps pan for drag-moving levels; outside Draw, a
+          // one-finger drag scrolls the chart and pinch zooms it.
+          onPanDown: drawMode
+              ? (d) => _dragLineStart(
+                  d.localPosition,
+                  Size(cons.maxWidth, cons.maxHeight),
+                )
+              : null,
+          onPanUpdate: drawMode
+              ? (d) => _dragLineUpdate(
+                  d.localPosition,
+                  Size(cons.maxWidth, cons.maxHeight),
+                )
+              : null,
+          onPanEnd: drawMode ? (_) => _dragLineEnd() : null,
+          onScaleStart: drawMode
+              ? null
+              : (d) {
+                  _panStartScroll = scrollCandles;
+                  _scaleStartVC = _vc.toDouble();
+                },
+          onScaleUpdate: drawMode
+              ? null
+              : (d) {
+                  final n = candles.length;
+                  if (n == 0) return;
+                  if (d.pointerCount >= 2) {
+                    setState(() {
+                      final v = (_scaleStartVC / d.scale).round();
+                      visibleOverride = v < 15 ? 15 : (v > n ? n : v);
+                    });
+                  } else {
+                    final plotW = cons.maxWidth - 52.0;
+                    final step = plotW / _vc;
+                    if (step <= 0) return;
+                    setState(() {
+                      final maxScroll = (n - _vc) > 0
+                          ? (n - _vc).toDouble()
+                          : 0.0;
+                      scrollCandles =
+                          (_panStartScroll - d.focalPointDelta.dx / step).clamp(
+                            0.0,
+                            maxScroll,
+                          );
+                    });
+                  }
+                },
+          onTapDown: (d) {
+            if (trendMode) {
+              _trendAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+            } else if (fibMode) {
+              _fibAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+            } else {
+              _pick(d.localPosition, cons.maxWidth);
+            }
+          },
+          onTapUp: (d) {
+            // Draw-mode add/remove lives on tap-UP so a drag-move (pan wins
+            // the arena) never deletes the line being moved.
+            if (drawMode) {
+              _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+            }
+          },
+          onLongPressStart: (d) {
+            _editLineAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
+          },
+          child: CustomPaint(
+            size: Size(cons.maxWidth, cons.maxHeight),
+            painter: CandlePainter(
               candles: candles,
               firstVisible: _fv,
               visibleCount: _vc,
@@ -777,6 +985,8 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               pendingTrend: pendingTrend,
               fibs: fibs,
               pendingFib: pendingFib,
+              extraEmas: {for (final p in extraEmas) p: ema(candles, p)},
+              bands: bollingerOn ? bollinger(candles) : null,
               sma: smaOn ? sma(candles, 20) : null,
               sma200: sma200On ? sma(candles, 200) : null,
               smaPeriod: 20,
@@ -786,10 +996,12 @@ class CandleChartPanelState extends State<CandleChartPanel> {
               macdLine: macdOn ? macd(candles).$1 : null,
               macdSignal: macdOn ? macd(candles).$2 : null,
               macdHist: macdOn ? macd(candles).$3 : null,
-              rsiPeriod: 14),
-        ),
-      );
-    });
+              rsiPeriod: 14,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _pick(Offset pos, double width) {
@@ -938,8 +1150,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
       lo = lo < c.low ? lo : c.low;
     }
     final range = hi - lo;
-    final hit =
-        hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
+    final hit = hLines.indexWhere(
+      (l) => (l.price - price).abs() < range * 0.02,
+    );
     setState(() => _dragLineIdx = hit >= 0 ? hit : null);
   }
 
@@ -973,8 +1186,9 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     final price = lo + (1 - pos.dy / plotH) * (hi - lo);
     // remove if tapping within 1% of range of an existing line
     final range = hi - lo;
-    final hit =
-        hLines.indexWhere((l) => (l.price - price).abs() < range * 0.02);
+    final hit = hLines.indexWhere(
+      (l) => (l.price - price).abs() < range * 0.02,
+    );
     setState(() {
       if (hit >= 0) {
         hLines.removeAt(hit);
@@ -1005,30 +1219,35 @@ class CandlePainter extends CustomPainter {
   final TrendLine? pendingTrend;
   final List<TrendLine> fibs;
   final TrendLine? pendingFib;
+  final Map<int, List<double>> extraEmas;
+  final (List<double>, List<double>, List<double>)? bands;
   final int firstVisible;
   final int visibleCount;
 
-  CandlePainter(
-      {required this.candles,
-      this.firstVisible = 0,
-      this.visibleCount = 0,
-      this.livePrice,
-      this.selected,
-      this.hLines = const [],
-      this.trendLines = const [],
-      this.pendingTrend,
-      this.fibs = const [],
-      this.pendingFib,
-      this.sma,
-      this.smaPeriod = 20,
-      this.sma200,
-      this.ema,
-      this.emaPeriod = 50,
-      this.rsi,
-      this.rsiPeriod = 14,
-      this.macdLine,
-      this.macdSignal,
-      this.macdHist});
+  CandlePainter({
+    required this.candles,
+    this.firstVisible = 0,
+    this.visibleCount = 0,
+    this.livePrice,
+    this.selected,
+    this.hLines = const [],
+    this.trendLines = const [],
+    this.pendingTrend,
+    this.fibs = const [],
+    this.pendingFib,
+    this.extraEmas = const {},
+    this.bands,
+    this.sma,
+    this.smaPeriod = 20,
+    this.sma200,
+    this.ema,
+    this.emaPeriod = 50,
+    this.rsi,
+    this.rsiPeriod = 14,
+    this.macdLine,
+    this.macdSignal,
+    this.macdHist,
+  });
 
   static const bull = Color(0xFF2EC27E);
   static const bear = Color(0xFFE0654F);
@@ -1069,16 +1288,26 @@ class CandlePainter extends CustomPainter {
     // grid + price labels
     final gridPaint = Paint()..color = grid;
     final labelStyle = TextStyle(
-        color: axis, fontSize: 9, fontFamily: 'Roboto', height: 1);
+      color: axis,
+      fontSize: 9,
+      fontFamily: 'Roboto',
+      height: 1,
+    );
     for (int g = 0; g <= 4; g++) {
       final v = lo + (hi - lo) * g / 4;
       final yy = y(v);
       canvas.drawLine(Offset(0, yy), Offset(plotW, yy), gridPaint);
       final tp = TextPainter(
-          text: TextSpan(text: v.toStringAsFixed(2), style: labelStyle),
-          textDirection: TextDirection.ltr)
-        ..layout();
-      tp.paint(canvas, Offset(plotW + 4, (yy - tp.height / 2).clamp(0.0, size.height - tp.height)));
+        text: TextSpan(text: v.toStringAsFixed(2), style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(
+          plotW + 4,
+          (yy - tp.height / 2).clamp(0.0, size.height - tp.height),
+        ),
+      );
     }
 
     // candles. The last bar is the FORMING candle: its close tracks the
@@ -1105,12 +1334,22 @@ class CandlePainter extends CustomPainter {
       final up = c.close >= c.open;
       final paint = Paint()..color = up ? bull : bear;
       final cx = step * (i - fv0 + 0.5);
-      canvas.drawLine(Offset(cx, y(c.high)), Offset(cx, y(c.low)), paint..strokeWidth = 1);
+      canvas.drawLine(
+        Offset(cx, y(c.high)),
+        Offset(cx, y(c.low)),
+        paint..strokeWidth = 1,
+      );
       final top = y(math.max(c.open, c.close));
       final bot = y(math.min(c.open, c.close));
       canvas.drawRect(
-          Rect.fromLTRB(cx - bodyW / 2, top, cx + bodyW / 2, math.max(bot, top + 1)),
-          paint);
+        Rect.fromLTRB(
+          cx - bodyW / 2,
+          top,
+          cx + bodyW / 2,
+          math.max(bot, top + 1),
+        ),
+        paint,
+      );
     }
 
     // indicator overlays (aligned: value[i] pairs with candle[period-1+i])
@@ -1140,6 +1379,19 @@ class CandlePainter extends CustomPainter {
     if (sma200 != null) drawLine(sma200!, 200, const Color(0xFF6FD3E0));
     if (ema != null) drawLine(ema!, emaPeriod, const Color(0xFFFF9F43));
 
+    const emaColors = {
+      9: Color(0xFFB78CFF),
+      21: Color(0xFFFFD166),
+      200: Color(0xFF70D6FF),
+    };
+    for (final entry in extraEmas.entries)
+      drawLine(entry.value, entry.key, emaColors[entry.key] ?? gold);
+    if (bands != null) {
+      drawLine(bands!.$1, 20, const Color(0xFF95D5B2));
+      drawLine(bands!.$2, 20, const Color(0xFF52B788));
+      drawLine(bands!.$3, 20, const Color(0xFF52B788));
+    }
+
     // crosshair
     if (selected != null && selected! < n) {
       final c = candles[selected!];
@@ -1161,23 +1413,33 @@ class CandlePainter extends CustomPainter {
     const dashW = 5.0, gapW = 4.0;
     double x = 0;
     while (x < plotW) {
-      canvas.drawLine(Offset(x, lpy), Offset(math.min(x + dashW, plotW), lpy), dashPaint);
+      canvas.drawLine(
+        Offset(x, lpy),
+        Offset(math.min(x + dashW, plotW), lpy),
+        dashPaint,
+      );
       x += dashW + gapW;
     }
     final tagTp = TextPainter(
-        text: TextSpan(
-            text: lp.toStringAsFixed(2),
-            style: const TextStyle(
-                color: Colors.black,
-                fontSize: 9,
-                fontFamily: 'Roboto',
-                fontWeight: FontWeight.w700)),
-        textDirection: TextDirection.ltr)
-      ..layout();
-    final tagY = (lpy - tagTp.height / 2).clamp(0.0, size.height - tagTp.height);
+      text: TextSpan(
+        text: lp.toStringAsFixed(2),
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 9,
+          fontFamily: 'Roboto',
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final tagY = (lpy - tagTp.height / 2).clamp(
+      0.0,
+      size.height - tagTp.height,
+    );
     final rr = RRect.fromRectAndRadius(
-        Rect.fromLTWH(plotW + 2, tagY - 2, tagTp.width + 8, tagTp.height + 4),
-        const Radius.circular(3));
+      Rect.fromLTWH(plotW + 2, tagY - 2, tagTp.width + 8, tagTp.height + 4),
+      const Radius.circular(3),
+    );
     canvas.drawRRect(rr, Paint()..color = gold);
     tagTp.paint(canvas, Offset(plotW + 6, tagY));
 
@@ -1190,16 +1452,17 @@ class CandlePainter extends CustomPainter {
       final yy = y(l.price);
       canvas.drawLine(Offset(0, yy), Offset(plotW, yy), hlPaint);
       final tp = TextPainter(
-          text: TextSpan(
-              text: '${l.name} ${l.price.toStringAsFixed(2)}',
-              style: const TextStyle(
-                  color: Color(0xFF5EE0A0),
-                  fontSize: 9,
-                  fontFamily: 'Roboto')),
-          textDirection: TextDirection.ltr)
-        ..layout();
-      tp.paint(canvas,
-          Offset(plotW - tp.width - 2, yy - tp.height - 1));
+        text: TextSpan(
+          text: '${l.name} ${l.price.toStringAsFixed(2)}',
+          style: const TextStyle(
+            color: Color(0xFF5EE0A0),
+            fontSize: 9,
+            fontFamily: 'Roboto',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(plotW - tp.width - 2, yy - tp.height - 1));
     }
 
     // trend lines (anchored by candle time, extended to the plot edges)
@@ -1230,8 +1493,11 @@ class CandlePainter extends CustomPainter {
           while (dx < total) {
             final xStart = dx;
             final xEnd = math.min(dx + dw, total);
-            canvas.drawLine(Offset(xStart, ya + m * xStart),
-                Offset(xEnd, ya + m * xEnd), tlPaint);
+            canvas.drawLine(
+              Offset(xStart, ya + m * xStart),
+              Offset(xEnd, ya + m * xEnd),
+              tlPaint,
+            );
             dx += dw + gw;
           }
         } else {
@@ -1277,14 +1543,16 @@ class CandlePainter extends CustomPainter {
           final label =
               '${pct == pct.roundToDouble() ? pct.toInt() : pct.toStringAsFixed(1)}% ${price.toStringAsFixed(2)}';
           final tp = TextPainter(
-              text: TextSpan(
-                  text: label,
-                  style: const TextStyle(
-                      color: Color(0xCCFFD166),
-                      fontSize: 8,
-                      fontFamily: 'Roboto')),
-              textDirection: TextDirection.ltr)
-            ..layout();
+            text: TextSpan(
+              text: label,
+              style: const TextStyle(
+                color: Color(0xCCFFD166),
+                fontSize: 8,
+                fontFamily: 'Roboto',
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
           tp.paint(canvas, Offset(plotW - tp.width - 2, yy - tp.height - 1));
         }
       }
@@ -1300,7 +1568,10 @@ class CandlePainter extends CustomPainter {
       final top = plotH + 8;
       final h = rsiH - 8;
       final rp = Paint()..color = grid;
-      canvas.drawRect(Rect.fromLTWH(0, top, plotW, h), rp..color = const Color(0xFF141923));
+      canvas.drawRect(
+        Rect.fromLTWH(0, top, plotW, h),
+        rp..color = const Color(0xFF141923),
+      );
       double ry(double v) => top + h * (1 - v / 100);
       final band = Paint()..color = const Color(0xFF232A35);
       canvas.drawLine(Offset(0, ry(70)), Offset(plotW, ry(70)), band);
@@ -1323,14 +1594,16 @@ class CandlePainter extends CustomPainter {
       }
       canvas.drawPath(path, rPaint);
       final lbl = TextPainter(
-          text: TextSpan(
-              text: 'RSI ${rsi!.last.toStringAsFixed(1)}',
-              style: const TextStyle(
-                  color: Color(0xFFB78CFF),
-                  fontSize: 9,
-                  fontFamily: 'Roboto')),
-          textDirection: TextDirection.ltr)
-        ..layout();
+        text: TextSpan(
+          text: 'RSI ${rsi!.last.toStringAsFixed(1)}',
+          style: const TextStyle(
+            color: Color(0xFFB78CFF),
+            fontSize: 9,
+            fontFamily: 'Roboto',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
       lbl.paint(canvas, Offset(4, top + 2));
     }
 
@@ -1339,15 +1612,20 @@ class CandlePainter extends CustomPainter {
     for (int t = 0; t < 4; t++) {
       final i = fv0 + ((vc0 - 1) * t / 3).round();
       final c = candles[i];
-      final sameDay = c.time.day == candles.last.time.day &&
+      final sameDay =
+          c.time.day == candles.last.time.day &&
           c.time.month == candles.last.time.month;
       final s = sameDay
           ? '${c.time.hour.toString().padLeft(2, '0')}:${c.time.minute.toString().padLeft(2, '0')}'
           : '${c.time.month}/${c.time.day}';
       final tp = TextPainter(
-          text: TextSpan(text: s, style: tf), textDirection: TextDirection.ltr)
-        ..layout();
-      final tx = (step * (i - fv0 + 0.5) - tp.width / 2).clamp(0.0, plotW - tp.width);
+        text: TextSpan(text: s, style: tf),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final tx = (step * (i - fv0 + 0.5) - tp.width / 2).clamp(
+        0.0,
+        plotW - tp.width,
+      );
       tp.paint(canvas, Offset(tx, plotH + 3));
     }
 
@@ -1355,8 +1633,10 @@ class CandlePainter extends CustomPainter {
     if (macdH > 0) {
       final top = plotH + 8 + rsiH;
       final h = macdH - 8;
-      canvas.drawRect(Rect.fromLTWH(0, top, plotW, h),
-          Paint()..color = const Color(0xFF141923));
+      canvas.drawRect(
+        Rect.fromLTWH(0, top, plotW, h),
+        Paint()..color = const Color(0xFF141923),
+      );
       double mn = 0, mx = 0;
       void ext(List<double>? s) {
         if (s == null) return;
@@ -1371,8 +1651,11 @@ class CandlePainter extends CustomPainter {
       ext(macdHist);
       if (mx - mn < 1e-9) mx = mn + 1;
       double my(double v) => top + h * (1 - (v - mn) / (mx - mn));
-      canvas.drawLine(Offset(0, my(0)), Offset(plotW, my(0)),
-          Paint()..color = const Color(0xFF232A35));
+      canvas.drawLine(
+        Offset(0, my(0)),
+        Offset(plotW, my(0)),
+        Paint()..color = const Color(0xFF232A35),
+      );
       final stepI = plotW / vc0;
       if (macdHist != null) {
         for (int i = 0; i < macdHist!.length; i++) {
@@ -1382,9 +1665,14 @@ class CandlePainter extends CustomPainter {
           final v = macdHist![i];
           final y0 = my(0), y1 = my(v);
           canvas.drawRect(
-              Rect.fromLTRB(x - 1.5, y0 < y1 ? y0 : y1, x + 1.5,
-                  y0 > y1 ? y0 : y1),
-              Paint()..color = v >= 0 ? bull : bear);
+            Rect.fromLTRB(
+              x - 1.5,
+              y0 < y1 ? y0 : y1,
+              x + 1.5,
+              y0 > y1 ? y0 : y1,
+            ),
+            Paint()..color = v >= 0 ? bull : bear,
+          );
         }
       }
       void mline(List<double> s, int off, Color c) {
@@ -1411,12 +1699,16 @@ class CandlePainter extends CustomPainter {
         mline(macdSignal!, 33, const Color(0xFFFF9F43));
       }
       final label = TextPainter(
-          text: TextSpan(
-              text: 'MACD ${macdLine!.last.toStringAsFixed(2)}',
-              style: const TextStyle(
-                  color: axis, fontSize: 9, fontFamily: 'Roboto')),
-          textDirection: TextDirection.ltr)
-        ..layout();
+        text: TextSpan(
+          text: 'MACD ${macdLine!.last.toStringAsFixed(2)}',
+          style: const TextStyle(
+            color: axis,
+            fontSize: 9,
+            fontFamily: 'Roboto',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
       label.paint(canvas, Offset(4, top + 2));
     }
   }
@@ -1426,6 +1718,8 @@ class CandlePainter extends CustomPainter {
       old.candles != candles ||
       old.livePrice != livePrice ||
       old.selected != selected ||
+      old.extraEmas != extraEmas ||
+      old.bands != bands ||
       old.sma != sma ||
       old.ema != ema ||
       old.rsi != rsi ||
@@ -1459,9 +1753,7 @@ class _FullscreenChartPageState extends State<FullscreenChartPage> {
 
   @override
   void dispose() {
-    SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-    ]);
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
@@ -1470,33 +1762,39 @@ class _FullscreenChartPageState extends State<FullscreenChartPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF0E1116),
       body: SafeArea(
-        child: Stack(children: [
-          Positioned.fill(
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: CandleChartPanel(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: CandleChartPanel(
                   loader: widget.loader,
                   livePrice: widget.livePrice,
-                  expand: true),
-            ),
-          ),
-          Positioned(
-            top: 14,
-            right: 14,
-            child: InkWell(
-              onTap: () => Navigator.of(context).pop(),
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF232A35),
-                  borderRadius: BorderRadius.circular(8),
+                  expand: true,
                 ),
-                child: const Icon(Icons.fullscreen_exit,
-                    size: 20, color: Colors.white),
               ),
             ),
-          ),
-        ]),
+            Positioned(
+              top: 14,
+              right: 14,
+              child: InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF232A35),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.fullscreen_exit,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

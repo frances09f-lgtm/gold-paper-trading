@@ -5,16 +5,32 @@ import 'package:gold_paper_trading/market_data/models.dart';
 List<Candle> cs(List<double> closes) {
   final base = DateTime(2026, 1, 1);
   return List.generate(
-      closes.length,
-      (i) => Candle(
-          time: base.add(Duration(minutes: i)),
-          open: closes[i],
-          high: closes[i],
-          low: closes[i],
-          close: closes[i]));
+    closes.length,
+    (i) => Candle(
+      time: base.add(Duration(minutes: i)),
+      open: closes[i],
+      high: closes[i],
+      low: closes[i],
+      close: closes[i],
+    ),
+  );
 }
 
 void main() {
+  test('bollinger population bands and alignment', () {
+    final b = bollinger(cs([1, 2, 3, 4, 5]), period: 3);
+    expect(b.$1, [2, 3, 4]);
+    expect(b.$2.first, closeTo(3.6329931619, 1e-8));
+    expect(b.$3.first, closeTo(0.3670068381, 1e-8));
+    expect(bollinger(cs([1, 2])).$1, isEmpty);
+  });
+  test('EMA periods do not pad missing history', () {
+    for (final p in [9, 21, 50, 200]) {
+      expect(ema(cs(List.filled(p - 1, 100)), p), isEmpty);
+      expect(ema(cs(List.filled(p, 100)), p), [100]);
+    }
+  });
+
   test('sma computes and aligns', () {
     final v = sma(cs([1, 2, 3, 4, 5]), 3);
     expect(v, [2.0, 3.0, 4.0]);

@@ -214,6 +214,54 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     } catch (_) {}
   }
 
+  bool get _hasDrawings =>
+      hLines.isNotEmpty ||
+      trendLines.isNotEmpty ||
+      fibs.isNotEmpty ||
+      pendingTrend != null ||
+      pendingFib != null;
+
+  /// Clear ALL chart drawings at once (user request): every drawn level,
+  /// trend line and fib, including a half-placed anchor. Persisted copies
+  /// are cleared too so they stay gone after restart.
+  Future<void> _clearAllDrawings() async {
+    setState(() {
+      hLines.clear();
+      trendLines.clear();
+      fibs.clear();
+      pendingTrend = null;
+      pendingFib = null;
+      _dragLineIdx = null;
+    });
+    await _saveLines();
+    await _saveTrends();
+    await _saveFibs();
+  }
+
+  Future<void> _confirmClearAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF151A22),
+        title: const Text('Clear all drawings?',
+            style: TextStyle(color: Colors.white, fontSize: 15)),
+        content: const Text(
+            'This removes every drawn level, trend line and fib on the chart.',
+            style: TextStyle(color: Color(0xFF8A93A6), fontSize: 13)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child:
+                  const Text('Clear', style: TextStyle(color: Color(0xFFF27EA9)))),
+        ],
+      ),
+    );
+    if (ok == true) await _clearAllDrawings();
+  }
+
   Future<void> _saveLines() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -451,6 +499,17 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                   height: 12,
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: Color(0xFFF5C242))),
+            if (_hasDrawings) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: _confirmClearAll,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.delete_sweep,
+                      size: 18, color: Color(0xFFF27EA9)),
+                ),
+              ),
+            ],
             if (!widget.expand) ...[
               const SizedBox(width: 6),
               InkWell(

@@ -84,8 +84,14 @@ class AiDecision {
 class AdviceResult {
   final String verdict; // 'buy' | 'sell' | 'wait'
   final String reasons;
+
+  /// Model-estimated probabilities for each direction (0-100), null when
+  /// the model did not return usable numbers - the UI hides them then.
+  final int? buyPct;
+  final int? sellPct;
   final String raw;
-  const AdviceResult(this.verdict, this.reasons, {this.raw = ''});
+  const AdviceResult(this.verdict, this.reasons,
+      {this.buyPct, this.sellPct, this.raw = ''});
 }
 
 class BrainException implements Exception {
@@ -240,7 +246,11 @@ const _adviceSystemPrompt =
     'You are the chart-analysis brain of a gold (XAU/USD) paper-trading app. '
     'The user asks for your read of the chart - this is advice only and no '
     'order will be placed from it. Reply with ONLY a minified JSON object, '
-    'no prose: {"verdict":"buy"|"sell"|"wait","reasons":"2-3 short sentences"}. '
+    'no prose: {"verdict":"buy"|"sell"|"wait","buy_pct":number,'
+    '"sell_pct":number,"reasons":"2-3 short sentences"}. '
+    'buy_pct and sell_pct are your estimated probabilities (0-100) of an up '
+    'move versus a down move from here - honest estimates, they need not '
+    'sum to 100 (uncertainty absorbs the rest). '
     'Base the verdict on the support/resistance levels and recent structure '
     'in the data. Choose wait when the picture is unclear. Never invent data.';
 
@@ -316,9 +326,18 @@ AdviceResult parseAdvice(String content) {
   var v = j['verdict']?.toString().toLowerCase() ?? 'wait';
   if (v != 'buy' && v != 'sell') v = 'wait';
   final reasons = j['reasons']?.toString().trim() ?? '';
+  int? pctOf(String key) {
+    final n = j![key];
+    if (n is! num) return null;
+    var p = n.round();
+    if (p < 0) p = 0;
+    if (p > 100) p = 100;
+    return p;
+  }
+
   return AdviceResult(
       v, reasons.isEmpty ? 'No reasons given.' : reasons,
-      raw: content);
+      buyPct: pctOf('buy_pct'), sellPct: pctOf('sell_pct'), raw: content);
 }
 
 class GroqBrain {

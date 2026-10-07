@@ -2681,6 +2681,19 @@ class _AiTabState extends State<AiTab> {
   /// Advice button (user request): the Groq brain reads support/
   /// resistance + recent structure and says buy/sell/wait with reasons.
   /// Advice only - this path can never place a trade.
+  Widget _pctChip(String label, int pct, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        border: Border.all(color: color),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text('$label $pct%',
+          style: TextStyle(
+              color: color, fontWeight: FontWeight.w700, fontSize: 11)),
+    );
+  }
+
   Future<void> _getAdvice() async {
     setState(() {
       _advising = true;
@@ -2819,6 +2832,17 @@ class _AiTabState extends State<AiTab> {
                           style:
                               const TextStyle(fontSize: 12, height: 1.35))),
                 ]),
+                if (_advice!.buyPct != null || _advice!.sellPct != null) ...[
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    if (_advice!.buyPct != null)
+                      _pctChip('BUY', _advice!.buyPct!, cGreen),
+                    if (_advice!.buyPct != null && _advice!.sellPct != null)
+                      const SizedBox(width: 8),
+                    if (_advice!.sellPct != null)
+                      _pctChip('SELL', _advice!.sellPct!, cRed),
+                  ]),
+                ],
                 const SizedBox(height: 6),
                 const Text('Possibilities, not financial advice.',
                     style: TextStyle(color: cDim, fontSize: 11)),

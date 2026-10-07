@@ -94,4 +94,43 @@ void main() {
     expect(p, contains('4010.0'));
     expect(p, contains('4044.0'));
   });
+
+
+  group('Advice prediction percentages (v36)', () {
+    test('buy/sell percentages parse through', () {
+      final r = parseAdvice(
+          '{"verdict":"buy","buy_pct":62,"sell_pct":38,"reasons":"Support held."}');
+      expect(r.verdict, 'buy');
+      expect(r.buyPct, 62);
+      expect(r.sellPct, 38);
+      expect(r.reasons, 'Support held.');
+    });
+    test('missing percentages stay null so the UI hides them', () {
+      final r = parseAdvice('{"verdict":"wait","reasons":"Mixed."}');
+      expect(r.buyPct, isNull);
+      expect(r.sellPct, isNull);
+    });
+    test('percentages clamp to 0-100 and must be numeric', () {
+      final r = parseAdvice(
+          '{"verdict":"sell","buy_pct":-5,"sell_pct":140,"reasons":"x"}');
+      expect(r.buyPct, 0);
+      expect(r.sellPct, 100);
+      final r2 = parseAdvice(
+          '{"verdict":"sell","buy_pct":"high","sell_pct":70,"reasons":"x"}');
+      expect(r2.buyPct, isNull);
+      expect(r2.sellPct, 70);
+    });
+    test('malformed still degrades to wait with no percentages', () {
+      final r = parseAdvice('not json at all');
+      expect(r.verdict, 'wait');
+      expect(r.buyPct, isNull);
+      expect(r.sellPct, isNull);
+    });
+    test('double percentages round to whole numbers', () {
+      final r = parseAdvice(
+          '{"verdict":"buy","buy_pct":61.6,"sell_pct":38.2,"reasons":"x"}');
+      expect(r.buyPct, 62);
+      expect(r.sellPct, 38);
+    });
+  });
 }

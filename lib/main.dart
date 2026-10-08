@@ -1141,38 +1141,32 @@ class _TradeTabState extends State<TradeTab> {
                   Expanded(
                     child: Material(
                       color: const Color(0xFFDE1557),
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(12),
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(12),
                         onTap: () => setState(() => dir = 'sell'),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: SizedBox(
+                          height: 52,
                           child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text(
-                                'SELL',
+                              Text(
+                                dir == 'sell' ? 'SELL (selected)' : 'SELL',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const SizedBox(height: 5),
+                              const SizedBox(height: 2),
                               Text(
                                 app.bid == null
                                     ? 'Bid unavailable'
                                     : fmt(app.bid),
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 20,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                dir == 'sell' ? 'Selected' : ' ',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
                                 ),
                               ),
                             ],
@@ -1185,38 +1179,32 @@ class _TradeTabState extends State<TradeTab> {
                   Expanded(
                     child: Material(
                       color: const Color(0xFF2BBB97),
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(12),
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(12),
                         onTap: () => setState(() => dir = 'buy'),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: SizedBox(
+                          height: 52,
                           child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text(
-                                'BUY',
+                              Text(
+                                dir == 'buy' ? 'BUY (selected)' : 'BUY',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const SizedBox(height: 5),
+                              const SizedBox(height: 2),
                               Text(
                                 app.ask == null
                                     ? 'Ask unavailable'
                                     : fmt(app.ask),
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 20,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                dir == 'buy' ? 'Selected' : ' ',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
                                 ),
                               ),
                             ],

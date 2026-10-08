@@ -96,6 +96,23 @@ void main() {
   testWidgets('trade', (t) async {
     await shoot(t, (app) => TradeTab(app: app, candleLoaderOverride: testCandles), 'trade');
   });
+  testWidgets('compact sides keep half-height targets and select without trading', (t) async {
+    final app = demoState();
+    t.view.physicalSize = const Size(780, 1688);
+    t.view.devicePixelRatio = 2;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(MaterialApp(theme: buildAppTheme(), home: Scaffold(body: TradeTab(app: app, candleLoaderOverride: testCandles))));
+    await t.pump();
+    final sell = find.ancestor(of: find.text('SELL'), matching: find.byType(InkWell)).first;
+    expect(t.getSize(sell).height, 52);
+    final count = app.positions.length;
+    await t.tap(find.text('SELL'));
+    await t.pump();
+    expect(find.text('SELL (selected)'), findsOneWidget);
+    expect(find.text('SELL paper order'), findsOneWidget);
+    expect(app.positions.length, count);
+    expect(t.takeException(), isNull);
+  });
   testWidgets('positions', (t) async {
     await shoot(t, (app) => PositionsTab(app: app), 'positions');
   });

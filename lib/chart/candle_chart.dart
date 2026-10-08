@@ -170,6 +170,180 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     _armTimer();
   }
 
+  static const presetKey = 'sona_chart_presets';
+  Map<String, dynamic> layoutSnapshot() => {
+    'rangeMode': usingRange,
+    'interval': interval.code,
+    'sma20': smaOn,
+    'ema50': emaOn,
+    'sma200': sma200On,
+    'rsi': rsiOn,
+    'macd': macdOn,
+    'bollinger': bollingerOn,
+    'extraEmas': extraEmas.toList(),
+    'visibleCount': visibleOverride,
+  };
+  Future<Map<String, dynamic>> readPresets() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(presetKey);
+    if (raw == null) return {};
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<void> savePreset(String name) async {
+    final label = name.trim();
+    if (label.isEmpty || label.length > 40)
+      throw StateError('Use a name with 1 to 40 characters.');
+    final data = await readPresets();
+    if (data.keys.any((n) => n.toLowerCase() == label.toLowerCase()))
+      throw StateError(
+        'That name already exists. Delete it first or use a new name.',
+      );
+    if (data.length >= 12)
+      throw StateError('Delete a preset before adding more (12 maximum).');
+    data[label] = layoutSnapshot();
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(presetKey, jsonEncode(data)))
+      throw StateError('Could not save preset.');
+  }
+
+  Future<void> deletePreset(String name) async {
+    final data = await readPresets();
+    data.remove(name);
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(presetKey, jsonEncode(data)))
+      throw StateError('Could not delete preset.');
+  }
+
+  void applyPreset(Map<String, dynamic> data) {
+    if (data['rangeMode'] != usingRange)
+      throw StateError(
+        'This preset uses a different chart range mode. Open the matching chart to load it.',
+      );
+    final options = usingRange ? tradeRanges : intervals;
+    final matches = options.where((iv) => iv.code == data['interval']);
+    if (matches.isEmpty) throw StateError('Preset interval unavailable.');
+    final iv = matches.first;
+    final extras = (data['extraEmas'] as List? ?? [])
+        .whereType<int>()
+        .where((n) => [9, 21, 200].contains(n))
+        .toSet();
+    final count = (data['visibleCount'] as num?)?.toInt();
+    setState(() {
+      smaOn = data['sma20'] == true;
+      emaOn = data['ema50'] == true;
+      sma200On = data['sma200'] == true;
+      rsiOn = data['rsi'] == true;
+      macdOn = data['macd'] == true;
+      bollingerOn = data['bollinger'] == true;
+      extraEmas
+        ..clear()
+        ..addAll(extras);
+      visibleOverride = count == null ? null : count.clamp(15, 500);
+      scrollCandles = 0;
+      selected = null;
+      alertMode = drawMode = trendMode = fibMode = false;
+      pendingTrend = null;
+      pendingFib = null;
+    });
+    _setInterval(iv);
+  }
+
+  Future<void> presetDialog() async {
+    Map<String, dynamic> data;
+    try {
+      data = await readPresets();
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read saved layouts.')),
+        );
+      return;
+    }
+    if (!mounted) return;
+    final name = TextEditingController();
+    String? issue;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, update) => AlertDialog(
+          title: const Text('Chart layouts'),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Saved on this phone: indicators, range and zoom. No positions, alerts or drawings changed.',
+                  ),
+                  for (final entry in data.entries)
+                    ListTile(
+                      title: Text(entry.key),
+                      subtitle: Text(
+                        (entry.value as Map)['interval'].toString(),
+                      ),
+                      onTap: () {
+                        try {
+                          applyPreset(
+                            Map<String, dynamic>.from(entry.value as Map),
+                          );
+                          Navigator.pop(ctx);
+                        } catch (e) {
+                          update(() => issue = e.toString());
+                        }
+                      },
+                      trailing: IconButton(
+                        tooltip: 'Delete layout',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () async {
+                          try {
+                            await deletePreset(entry.key);
+                            update(() => data.remove(entry.key));
+                          } catch (_) {
+                            update(() => issue = 'Could not delete layout.');
+                          }
+                        },
+                      ),
+                    ),
+                  TextField(
+                    controller: name,
+                    maxLength: 40,
+                    decoration: const InputDecoration(
+                      labelText: 'Name current layout',
+                    ),
+                  ),
+                  if (issue != null)
+                    Text(
+                      issue!,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  await savePreset(name.text);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  update(() => issue = e.toString());
+                }
+              },
+              child: const Text('Save current'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Spec 9: drawn levels are stored locally (device), never on the server.
   Future<void> _loadLines() async {
     try {
@@ -543,6 +717,17 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
+                      InkWell(
+                        onTap: presetDialog,
+                        child: const Tooltip(
+                          message: 'Chart layouts',
+                          child: SizedBox(
+                            width: 28,
+                            height: 24,
+                            child: Icon(Icons.bookmarks_outlined, size: 18),
+                          ),
+                        ),
+                      ),
                       PopupMenuButton<String>(
                         tooltip: 'Indicators',
                         onSelected: (v) => setState(() {

@@ -87,6 +87,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   int _loadGeneration = 0;
   ChartInterval interval = intervals[1]; // 15m default
   List<Candle> candles = [];
+  int loadedAt = 0;
   bool loading = false;
   String? error;
   int? selected; // crosshair candle index
@@ -483,6 +484,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
         return;
       setState(() {
         candles = data;
+        loadedAt = DateTime.now().millisecondsSinceEpoch;
         loading = false;
         error = null;
       });

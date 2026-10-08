@@ -221,6 +221,31 @@ void main() {
           .writeAsBytes(data!.buffer.asUint8List());
     });
   });
+  testWidgets(
+    'Explain requires disclosure confirmation and cancels without trade',
+    (t) async {
+      final app = demoState();
+      final count = app.positions.length;
+      await t.binding.setSurfaceSize(const Size(412, 915));
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: TradeTab(app: app, candleLoaderOverride: testCandles),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Explain chart / position'));
+      await t.tap(find.text('Explain chart / position'));
+      await t.pumpAndSettle();
+      expect(find.text('Explain with Groq?'), findsOneWidget);
+      expect(find.textContaining('No PIN or account balance'), findsOneWidget);
+      await t.tap(find.text('Cancel'));
+      await t.pumpAndSettle();
+      expect(app.positions.length, count);
+    },
+  );
   testWidgets('positions', (t) async {
     await shoot(t, (app) => PositionsTab(app: app), 'positions');
   });

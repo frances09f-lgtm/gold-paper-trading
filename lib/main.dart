@@ -3,6 +3,7 @@ import 'dart:async';
 import 'user_api_keys.dart';
 import 'pending_orders.dart';
 import 'paper_margin.dart';
+import 'chart_explanation.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -122,6 +123,7 @@ class AppState extends ChangeNotifier {
   double starting = 10000;
   double balance = 10000;
   int accountRevision = 0;
+  int accountAt = 0;
   bool openingPaper = false;
   double? get estimatedFreeMargin => priceFresh && bid != null && ask != null
       ? PaperMargin.estimate(
@@ -553,6 +555,7 @@ class AppState extends ChangeNotifier {
         s['positions'] as List? ?? [],
       );
       accountRevision++;
+      accountAt = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
       // Stage (d): device-local cache so the app opens with last-known
       // state while offline; the network refresh above always wins.
@@ -1174,6 +1177,88 @@ class TradeTab extends StatefulWidget {
 }
 
 class _TradeTabState extends State<TradeTab> {
+  final chartKey = GlobalKey<CandleChartPanelState>();
+  bool explaining = false;
+  Future<void> explainChart() async {
+    Map<String, dynamic> data;
+    try {
+      final chart = chartKey.currentState;
+      if (chart == null) throw StateError('Chart not ready.');
+      data = ChartExplanation.snapshot(
+        candles: List.of(chart.candles),
+        interval: chart.interval.code,
+        loadedAt: chart.loadedAt,
+        quoteAt: app.priceAt ?? 0,
+        bid: app.bid,
+        ask: app.ask,
+        positions: app.positions,
+        accountAt: app.accountAt,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      return;
+    }
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Explain with Groq?'),
+        content: const Text(
+          'Sends this displayed candle snapshot, quote timestamps and open position size/entry/TP/SL to Groq using your saved key. No PIN or account balance is sent. Read-only: this cannot open or change a trade. Saved data may be stale.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Explain'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    setState(() => explaining = true);
+    String result;
+    try {
+      result = await ChartExplanation.explain(data);
+    } catch (e) {
+      result = '$e';
+    }
+    if (!mounted) return;
+    setState(() => explaining = false);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Chart / position explanation'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Snapshot: ${data['snapshot_at']}\nLast candle: ${data['last_candle_time']}\nQuote age: ${data['quote_age_seconds'] ?? "unknown"} seconds${data['quote_stale'] == true ? " (stale)" : ""}',
+                style: const TextStyle(color: cDim, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(result),
+              const SizedBox(height: 12),
+              const Text(
+                'Read-only. No trade changed.',
+                style: TextStyle(color: cDim, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String dir = 'buy';
   Future<void> selectSide(String side) async {
     setState(() => dir = side);
@@ -1293,6 +1378,7 @@ class _TradeTabState extends State<TradeTab> {
             ),
           ),
           CandleChartPanel(
+            key: chartKey,
             rangeMode: true,
             loader:
                 widget.candleLoaderOverride ??
@@ -1308,6 +1394,18 @@ class _TradeTabState extends State<TradeTab> {
                         return trimTradeRange(data, iv);
                       }),
             livePrice: app.price,
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: explaining ? null : explainChart,
+              icon: const Icon(Icons.lightbulb_outline, size: 18),
+              label: Text(
+                explaining
+                    ? 'Explaining saved data...'
+                    : 'Explain chart / position',
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           Stack(

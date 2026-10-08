@@ -1023,6 +1023,20 @@ class TradeTab extends StatefulWidget {
 
 class _TradeTabState extends State<TradeTab> {
   String dir = 'buy';
+  final orderKey = GlobalKey();
+  void selectSide(String side) {
+    setState(() => dir = side);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = orderKey.currentContext;
+      if (ctx != null && mounted)
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 250),
+          alignment: 0.05,
+        );
+    });
+  }
+
   final qtyCtrl = TextEditingController(text: '1');
   final tpCtrl = TextEditingController();
   final slCtrl = TextEditingController();
@@ -1141,17 +1155,25 @@ class _TradeTabState extends State<TradeTab> {
                   Expanded(
                     child: Material(
                       color: const Color(0xFFDE1557),
-                      borderRadius: BorderRadius.circular(12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: dir == 'sell'
+                              ? const Color(0xFFF5C242)
+                              : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => setState(() => dir = 'sell'),
+                        onTap: () => selectSide('sell'),
                         child: SizedBox(
                           height: 52,
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                dir == 'sell' ? 'SELL (selected)' : 'SELL',
+                                'SELL',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
@@ -1179,17 +1201,25 @@ class _TradeTabState extends State<TradeTab> {
                   Expanded(
                     child: Material(
                       color: const Color(0xFF2BBB97),
-                      borderRadius: BorderRadius.circular(12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: dir == 'buy'
+                              ? const Color(0xFFF5C242)
+                              : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => setState(() => dir = 'buy'),
+                        onTap: () => selectSide('buy'),
                         child: SizedBox(
                           height: 52,
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                dir == 'buy' ? 'BUY (selected)' : 'BUY',
+                                'BUY',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
@@ -1215,17 +1245,22 @@ class _TradeTabState extends State<TradeTab> {
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0ECEA),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  app.spread == null ? '--' : fmt(app.spread),
-                  style: const TextStyle(
-                    color: Color(0xFF10182A),
-                    fontWeight: FontWeight.w700,
+              IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0ECEA),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    app.spread == null ? '--' : fmt(app.spread),
+                    style: const TextStyle(
+                      color: Color(0xFF10182A),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -1240,8 +1275,9 @@ class _TradeTabState extends State<TradeTab> {
           const SizedBox(height: 10),
           const SessionsStrip(),
           const SizedBox(height: 10),
-          const Text(
+          Text(
             'New order',
+            key: orderKey,
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 10),

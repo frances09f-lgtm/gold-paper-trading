@@ -2135,7 +2135,7 @@ class _PositionsTabState extends State<PositionsTab> {
   bool showHistory = false;
   final Set<String> _histExpanded = {};
   // History filters (spec 26): time, result, direction.
-  String _timeFilter = 'all';
+  String _timeFilter = 'today';
   String _resultFilter = 'all';
   String _dirFilter = 'all';
 
@@ -2153,7 +2153,9 @@ class _PositionsTabState extends State<PositionsTab> {
         if (d == null) return false;
         switch (_timeFilter) {
           case 'today':
-            if (d.isBefore(todayStart)) return false;
+            if (d.isBefore(todayStart) ||
+                !d.isBefore(todayStart.add(const Duration(days: 1))))
+              return false;
             break;
           case 'yesterday':
             final y = todayStart.subtract(const Duration(days: 1));

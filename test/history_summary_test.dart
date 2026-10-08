@@ -47,9 +47,21 @@ void main() {
           'entry': 4100.0,
           'exit': 4098.0,
           'pnl': e.$2,
-          'closed_at': '2026-10-08T10:00:00Z',
+          'closed_at': DateTime.now().toIso8601String(),
         },
     ];
+    app.positions.add({
+      'id': 'old',
+      'status': 'closed',
+      'direction': 'sell',
+      'qty': 1.0,
+      'entry': 4100.0,
+      'exit': 4090.0,
+      'pnl': 10.0,
+      'closed_at': DateTime.now()
+          .subtract(const Duration(days: 2))
+          .toIso8601String(),
+    });
     await t.binding.setSurfaceSize(const Size(412, 915));
     final key = GlobalKey();
     await t.pumpWidget(
@@ -68,6 +80,7 @@ void main() {
     await t.pump();
     await t.tap(find.text('History'));
     await t.pump();
+    expect(find.text('Today'), findsOneWidget);
     expect(find.text('Realized P/L · USD'), findsOneWidget);
     expect(find.text('+\$5.61'), findsOneWidget);
     expect(find.text('GOLD'), findsNWidgets(4));
@@ -90,5 +103,10 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('+\$6.61'), findsOneWidget);
     expect(find.text('-\$1.00'), findsNothing);
+    await t.tap(find.byType(DropdownButtonFormField<String>).first);
+    await t.pumpAndSettle();
+    await t.tap(find.text('All').last);
+    await t.pumpAndSettle();
+    expect(find.text('+\$16.61'), findsOneWidget);
   });
 }

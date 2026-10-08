@@ -276,7 +276,7 @@ class AppState extends ChangeNotifier {
     // 3s so the forming candle and last-price line feel real-time. The 1m
     // candle HISTORY refresh stays at 15s to respect TwelveData 8/min.
     _priceTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (unlocked) fetchPrice();
+      fetchPrice();
     });
     _ticker = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!unlocked) return;
@@ -619,6 +619,8 @@ class AppState extends ChangeNotifier {
     double? tp,
     double? sl,
   ) async {
+    if (!unlocked)
+      return 'Paper account not connected. Open the account button to connect.';
     if (!priceFresh) {
       return marketClosedMessage() ??
           'No fresh live price - cannot open right now.';
@@ -649,6 +651,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> closePaper(Map<String, dynamic> t, {String? reason}) async {
+    if (!unlocked) return 'Paper account not connected.';
     final id = t['id'].toString();
     if (closing.contains(id)) return null;
     if (!priceFresh) {
@@ -843,20 +846,21 @@ class GoldApp extends StatelessWidget {
 }
 
 class Root extends StatefulWidget {
-  const Root({super.key});
+  final AppState? testApp;
+  const Root({super.key, this.testApp});
   @override
   State<Root> createState() => _RootState();
 }
 
 class _RootState extends State<Root> with WidgetsBindingObserver {
-  final app = AppState();
+  late final AppState app = widget.testApp ?? AppState();
   int tab = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    app.init();
+    if (widget.testApp == null) app.init();
   }
 
   @override
@@ -867,7 +871,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.resumed && app.unlocked) {
+    if (s == AppLifecycleState.resumed) {
       app.fetchPrice();
       app.paperRefresh();
     }
@@ -878,7 +882,6 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
-        if (!app.unlocked) return LockScreen(app: app);
         return Scaffold(
           appBar: AppBar(
             title: const Text(
@@ -886,6 +889,17 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             actions: [
+              IconButton(
+                tooltip: 'Paper account',
+                icon: Icon(
+                  app.unlocked
+                      ? Icons.account_circle
+                      : Icons.account_circle_outlined,
+                ),
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => LockScreen(app: app))),
+              ),
               IconButton(
                 tooltip: 'Notification history',
                 icon: Badge(
@@ -904,14 +918,34 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               ),
             ],
           ),
-          body: IndexedStack(
-            index: tab,
+          body: Column(
             children: [
-              TradeTab(app: app),
-              PositionsTab(app: app),
-              AddTab(app: app),
-              StatsTab(app: app),
-              AiTab(app: app),
+              if (!app.unlocked)
+                MaterialBanner(
+                  content: Text(
+                    app.unlocking ? 'Connecting saved paper account...' : 'Paper account not connected. Quotes and API settings are available.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => LockScreen(app: app)),
+                      ),
+                      child: const Text('Connect'),
+                    ),
+                  ],
+                ),
+              Expanded(
+                child: IndexedStack(
+                  index: tab,
+                  children: [
+                    TradeTab(app: app),
+                    PositionsTab(app: app),
+                    AddTab(app: app),
+                    StatsTab(app: app),
+                    AiTab(app: app),
+                  ],
+                ),
+              ),
             ],
           ),
           bottomNavigationBar: NavigationBar(
@@ -980,14 +1014,25 @@ class _LockScreenState extends State<LockScreen> {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              const Text('Enter your PIN', style: TextStyle(color: cDim)),
+              const Text(
+                'Connect existing paper account',
+                style: TextStyle(color: cDim),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Account PIN is for server access only. You can use quotes and API settings without connecting.',
+                style: TextStyle(color: cDim, fontSize: 12),
+              ),
               const SizedBox(height: 20),
               TextField(
                 controller: ctrl,
                 obscureText: true,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
-                onSubmitted: (_) => app.unlock(ctrl.text.trim()),
+                onSubmitted: (_) async {
+                  if (await app.unlock(ctrl.text.trim()) && context.mounted)
+                    Navigator.pop(context);
+                },
                 decoration: const InputDecoration(hintText: 'PIN'),
               ),
               const SizedBox(height: 14),
@@ -1001,8 +1046,14 @@ class _LockScreenState extends State<LockScreen> {
                   ),
                   onPressed: app.unlocking
                       ? null
-                      : () => app.unlock(ctrl.text.trim()),
-                  child: Text(app.unlocking ? 'Opening...' : 'Open'),
+                      : () async {
+                          if (await app.unlock(ctrl.text.trim()) &&
+                              context.mounted)
+                            Navigator.pop(context);
+                        },
+                  child: Text(
+                    app.unlocking ? 'Connecting...' : 'Connect account',
+                  ),
                 ),
               ),
               if (app.lockError.isNotEmpty)
@@ -1217,7 +1268,7 @@ class _TradeTabState extends State<TradeTab> {
                               const SizedBox(height: 2),
                               Text(
                                 app.bid == null
-                                    ? 'Bid unavailable'
+                                    ? '--'
                                     : fmt(app.bid),
                                 style: const TextStyle(
                                   color: Colors.white,
@@ -1263,7 +1314,7 @@ class _TradeTabState extends State<TradeTab> {
                               const SizedBox(height: 2),
                               Text(
                                 app.ask == null
-                                    ? 'Ask unavailable'
+                                    ? '--'
                                     : fmt(app.ask),
                                 style: const TextStyle(
                                   color: Colors.white,

@@ -947,7 +947,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
     if (c == null) {
       return Text(
         widget.loader == null
-            ? 'Candle feed not configured (set MARKET_DATA_API_KEY)'
+            ? 'Candle feed not configured. Add your Twelve Data key in API settings.'
             : 'Loading real candles...',
         style: TextStyle(color: dim, fontSize: 11),
       );

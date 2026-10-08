@@ -71,7 +71,7 @@ Future<void> _initPlugin() async {
   await android?.createNotificationChannel(
     const AndroidNotificationChannel(
       _channelId,
-      'Oro alerts',
+      'Sona alerts',
       description: 'TP/SL hits and price alerts',
       importance: Importance.high,
     ),
@@ -107,7 +107,7 @@ Future<void> _notify(int id, String title, String body) async {
     const NotificationDetails(
       android: AndroidNotificationDetails(
         _channelId,
-        'Oro alerts',
+        'Sona alerts',
         channelDescription: 'TP/SL hits and price alerts',
         importance: Importance.high,
         priority: Priority.high,
@@ -357,7 +357,7 @@ Future<void> _bgCheck() async {
         pending.add((
           closeKey,
           nid++,
-          'Oro: position closed',
+          'Sona: position closed',
           '$dir XAU/USD ${_qty(p)} - $why',
         ));
       }
@@ -405,7 +405,7 @@ Future<void> _bgCheck() async {
           pending.add((
             alertKey,
             nid++,
-            'Oro: price alert',
+            'Sona: price alert',
             'XAU/USD ${above ? "rose above" : "fell below"} $level (now ${price.toStringAsFixed(2)})',
           ));
         }
@@ -430,7 +430,7 @@ Future<void> _bgCheck() async {
       ];
       await _notify(
         900,
-        'Oro: while you were away',
+        'Sona: while you were away',
         '${parts.join(' · ')} - tap to view',
       );
     } else {

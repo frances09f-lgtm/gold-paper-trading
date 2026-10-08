@@ -374,14 +374,14 @@ class AutoTrade {
     final msg =
         '${d.action == 'buy' ? 'Bought' : 'Sold'} ${qty.toStringAsFixed(2)} oz @ ${ref.toStringAsFixed(2)} - TP ${d.tp!.toStringAsFixed(2)}, SL ${d.sl!.toStringAsFixed(2)}. ${d.reason}';
     await AiLog.add('trade', msg);
-    await showForegroundNotification('Oro AI traded', msg);
+    await showForegroundNotification('Sona AI traded', msg);
     return msg;
   }
 
   static Future<void> _pause(SharedPreferences prefs, String reason) async {
     await prefs.setString(_pauseKey, reason);
     await AiLog.add('pause', reason);
-    await showForegroundNotification('Oro AI paused', reason);
+    await showForegroundNotification('Sona AI paused', reason);
   }
 
   // --- network helpers (mirrors of notifications.dart workers) ---

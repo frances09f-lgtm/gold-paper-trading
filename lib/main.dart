@@ -203,7 +203,7 @@ class AppState extends ChangeNotifier {
         // fires while the app is open is banner-only AND marked triggered,
         // so the background worker never notifies for it either.
         showForegroundNotification(
-          'Oro: price alert',
+          'Sona: price alert',
           'XAU/USD ${a.above ? "rose above" : "fell below"} ${a.level} (now ${price!.toStringAsFixed(2)})',
         );
       }
@@ -848,7 +848,7 @@ class GoldApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Oro',
+      title: 'Sona',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: const Root(),
@@ -896,7 +896,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
         return Scaffold(
           appBar: AppBar(
             title: const Text(
-              'Oro',
+              'Sona',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             actions: [
@@ -1021,7 +1021,7 @@ class _LockScreenState extends State<LockScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'Oro',
+                'Sona',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -1381,7 +1381,7 @@ class _TradeTabState extends State<TradeTab> {
                         '${o.side.toUpperCase()} ${o.qty} oz ${o.above ? "at or above" : "at or below"} ${fmt(o.trigger)}',
                       ),
                       subtitle: Text(
-                        '${o.status} · ${o.gtc ? "GTC" : "expires at local midnight"} · fills only while Oro is open, needs internet${o.note == null ? "" : "\n${o.note}"}',
+                        '${o.status} · ${o.gtc ? "GTC" : "expires at local midnight"} · fills only while Sona is open, needs internet${o.note == null ? "" : "\n${o.note}"}',
                       ),
                       trailing: o.status == 'pending'
                           ? IconButton(
@@ -3704,7 +3704,7 @@ class _AiTabState extends State<AiTab> {
     final msg =
         'AI sure - ${dir == 'buy' ? 'bought' : 'sold'} ${qty.toStringAsFixed(2)} oz @ ${px.toStringAsFixed(2)} - TP ${r.tp!.toStringAsFixed(2)}, SL ${r.sl!.toStringAsFixed(2)}';
     await AiLog.add('trade', msg);
-    await showForegroundNotification('Oro AI traded', msg);
+    await showForegroundNotification('Sona AI traded', msg);
     UsageReporter.report('trade_opened', {'src': 'advice'});
     return msg;
   }
@@ -4220,7 +4220,7 @@ class _PaperOrderSheetState extends State<PaperOrderSheet> {
       final store = widget.app.pendingOrders;
       if (store == null) {
         setState(
-          () => error = 'Pending storage is not ready. Try reopening Oro.',
+          () => error = 'Pending storage is not ready. Try reopening Sona.',
         );
         return;
       }
@@ -4261,7 +4261,7 @@ class _PaperOrderSheetState extends State<PaperOrderSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Paper pending order saved. Fills only while Oro is open, needs internet.',
+            'Paper pending order saved. Fills only while Sona is open, needs internet.',
           ),
         ),
       );
@@ -4417,7 +4417,7 @@ class _PaperOrderSheetState extends State<PaperOrderSheet> {
                   onChanged: (v) => setState(() => gtc = v),
                 ),
                 const Text(
-                  'Fills only while Oro is open, needs internet. Execution is at the next available side quote, not guaranteed at the trigger price.',
+                  'Fills only while Sona is open, needs internet. Execution is at the next available side quote, not guaranteed at the trigger price.',
                   style: TextStyle(color: cDim, fontSize: 11),
                 ),
                 const SizedBox(height: 16),
@@ -4491,7 +4491,7 @@ class _PaperOrderSheetState extends State<PaperOrderSheet> {
               const SizedBox(height: 8),
               Text(
                 pending
-                    ? 'Pending paper order. Fills only while Oro is open, needs internet.'
+                    ? 'Pending paper order. Fills only while Sona is open, needs internet.'
                     : 'Market paper order. Spread/slippage apply. TP/SL checks can be delayed when the app is closed.',
                 style: TextStyle(color: cDim, fontSize: 11),
               ),

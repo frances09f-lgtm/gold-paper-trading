@@ -1,3 +1,5 @@
+import 'history_summary.dart';
+
 import 'dart:async';
 
 import 'user_api_keys.dart';
@@ -2184,6 +2186,7 @@ class _PositionsTabState extends State<PositionsTab> {
   ) {
     return Expanded(
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: value,
         isDense: true,
         decoration: InputDecoration(
@@ -2203,7 +2206,11 @@ class _PositionsTabState extends State<PositionsTab> {
           ),
         ),
         dropdownColor: const Color(0xFF1A1F2B),
-        style: const TextStyle(fontSize: 12, color: Colors.white),
+        style: const TextStyle(
+          fontFamily: 'Roboto',
+          fontSize: 12,
+          color: Colors.white,
+        ),
         items: [
           for (final e in options.entries)
             DropdownMenuItem(value: e.key, child: Text(e.value)),
@@ -2286,33 +2293,34 @@ class _PositionsTabState extends State<PositionsTab> {
               ],
             ),
           ),
-        // User request: current gold price visible with the positions.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
-          child: Row(
-            children: [
-              const Text(
-                'XAU/USD',
-                style: TextStyle(color: cDim, fontSize: 12),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                app.priceOk ? '\$${fmt(app.price)}' : '--',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: app.priceFresh ? Colors.white : cDim,
+        if (!showHistory)
+          // User request: current gold price visible with the positions.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
+            child: Row(
+              children: [
+                const Text(
+                  'XAU/USD',
+                  style: TextStyle(color: cDim, fontSize: 12),
                 ),
-              ),
-              const SizedBox(width: 8),
-              if (app.bid != null && app.ask != null)
+                const SizedBox(width: 8),
                 Text(
-                  'Bid ${fmt(app.bid)} · Ask ${fmt(app.ask)}',
-                  style: const TextStyle(color: cDim, fontSize: 11),
+                  app.priceOk ? '\$${fmt(app.price)}' : '--',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: app.priceFresh ? Colors.white : cDim,
+                  ),
                 ),
-            ],
+                const SizedBox(width: 8),
+                if (app.bid != null && app.ask != null)
+                  Text(
+                    'Bid ${fmt(app.bid)} · Ask ${fmt(app.ask)}',
+                    style: const TextStyle(color: cDim, fontSize: 11),
+                  ),
+              ],
+            ),
           ),
-        ),
         Expanded(
           child: showHistory
               ? _historyList(_filteredHist(hist))
@@ -2782,18 +2790,75 @@ class _PositionsTabState extends State<PositionsTab> {
   }
 
   Widget _historyList(List<Map<String, dynamic>> hist) {
-    if (hist.isEmpty) {
-      return const Center(
-        child: Text('No closed trades match', style: TextStyle(color: cDim)),
-      );
-    }
+    final summary = HistorySummary.from(hist);
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-      itemCount: hist.length,
+      itemCount: hist.length + 1,
       itemBuilder: (ctx, i) {
-        final t = hist[i];
+        if (i == 0)
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(4, 20, 4, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: cDim.withValues(alpha: .45)),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.swap_calls, color: cDim),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Realized P/L · USD',
+                            style: TextStyle(color: cDim, fontSize: 13),
+                          ),
+                          Text(
+                            summary.known == 0 && summary.missing > 0
+                                ? '--'
+                                : money(summary.total, sign: true),
+                            style: TextStyle(
+                              color: summary.known == 0
+                                  ? cDim
+                                  : cls(summary.total),
+                              fontSize: 25,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${hist.length} closed ${hist.length == 1 ? 'trade' : 'trades'} in selected filters${summary.missing > 0 ? ' · Partial: ${summary.missing} missing P/L' : ''}',
+                  style: const TextStyle(color: cDim, fontSize: 12),
+                ),
+                if (hist.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 28),
+                    child: Text(
+                      'No closed trades match',
+                      style: TextStyle(color: cDim),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        final t = hist[i - 1];
         final buy = t['direction'] == 'buy';
-        final pnl = t['pnl'] == null ? null : (t['pnl'] as num).toDouble();
+        final rawPnl = t['pnl'];
+        final pnl = rawPnl is num && rawPnl.toDouble().isFinite
+            ? rawPnl.toDouble()
+            : null;
         final d = DateTime.tryParse(t['closed_at']?.toString() ?? '')
             ?.toLocal();
         final tid = t['id'].toString();
@@ -2812,25 +2877,61 @@ class _PositionsTabState extends State<PositionsTab> {
                 ),
                 child: Row(
                   children: [
-                    _pill(buy ? 'BUY' : 'SELL', buy),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${fmt((t['qty'] as num).toDouble())} oz',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        d == null
-                            ? ''
-                            : '${d.day} ${_month(d.month)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
-                        style: const TextStyle(color: cDim, fontSize: 12),
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFE8C75B),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.view_in_ar,
+                        color: Colors.white,
+                        size: 24,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'GOLD',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                buy ? Icons.north_east : Icons.south_east,
+                                color: buy ? cGreen : cRed,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  '${fmt((t['qty'] as num).toDouble())} Troy Ounce(s)',
+                                  style: const TextStyle(
+                                    color: cDim,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Text(
                       money(pnl, sign: true),
                       style: TextStyle(
                         color: cls(pnl),
+                        fontSize: 18,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -3256,7 +3357,10 @@ class _AddTabState extends State<AddTab> {
 
   Widget _tradeTile(Map<String, dynamic> t) {
     final buy = t['direction'] == 'buy';
-    final pnl = t['pnl'] == null ? null : (t['pnl'] as num).toDouble();
+    final rawPnl = t['pnl'];
+    final pnl = rawPnl is num && rawPnl.toDouble().isFinite
+        ? rawPnl.toDouble()
+        : null;
     final d = DateTime.tryParse(t['traded_at']?.toString() ?? '')?.toLocal();
     return card(
       Column(

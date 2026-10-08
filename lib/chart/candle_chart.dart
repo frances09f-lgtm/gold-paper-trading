@@ -61,6 +61,7 @@ class CandleChartPanel extends StatefulWidget {
   /// Loads real candles; may throw. When null, no candle source is
   /// configured and the panel says so instead of drawing fake bars.
   final CandleLoader? loader;
+  final ValueChanged<double>? onAlertPrice;
 
   /// Latest live price for the dashed last-price line (optional).
   final double? livePrice;
@@ -73,6 +74,7 @@ class CandleChartPanel extends StatefulWidget {
   const CandleChartPanel({
     super.key,
     this.loader,
+    this.onAlertPrice,
     this.livePrice,
     this.expand = false,
     this.rangeMode = false,
@@ -100,6 +102,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
   bool macdOn = false;
   final Set<int> extraEmas = {};
   bool bollingerOn = false;
+  bool alertMode = false;
   bool drawMode = false;
   bool trendMode = false;
   final List<DrawnLine> hLines = []; // user-drawn named price levels
@@ -611,11 +614,26 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                           ),
                         ),
                       ),
+                      if (widget.onAlertPrice != null)
+                        _indChip(
+                          'Alert',
+                          alertMode,
+                          const Color(0xFFF5C242),
+                          () => setState(() {
+                            alertMode = !alertMode;
+                            if (alertMode) {
+                              drawMode = false;
+                              trendMode = false;
+                              fibMode = false;
+                            }
+                          }),
+                        ),
                       _indChip(
                         'Draw',
                         drawMode,
                         const Color(0xFF5EE0A0),
                         () => setState(() {
+                          alertMode = false;
                           drawMode = !drawMode;
                           if (drawMode) {
                             trendMode = false;
@@ -628,6 +646,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                         trendMode,
                         const Color(0xFF6FD3E0),
                         () => setState(() {
+                          alertMode = false;
                           trendMode = !trendMode;
                           if (trendMode) {
                             drawMode = false;
@@ -641,6 +660,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                         fibMode,
                         const Color(0xFFFFD166),
                         () => setState(() {
+                          alertMode = false;
                           fibMode = !fibMode;
                           if (fibMode) {
                             drawMode = false;
@@ -685,6 +705,7 @@ class CandleChartPanelState extends State<CandleChartPanel> {
                         loader: widget.loader,
                         livePrice: widget.livePrice,
                         rangeMode: usingRange,
+                        onAlertPrice: widget.onAlertPrice,
                       ),
                     ),
                   ),
@@ -1053,6 +1074,18 @@ class CandleChartPanelState extends State<CandleChartPanel> {
           onTapUp: (d) {
             // Draw-mode add/remove lives on tap-UP so a drag-move (pan wins
             // the arena) never deletes the line being moved.
+            if (!drawMode &&
+                !trendMode &&
+                !fibMode &&
+                widget.onAlertPrice != null &&
+                (alertMode || d.localPosition.dx >= cons.maxWidth - rightPad)) {
+              final price = _priceAtY(
+                d.localPosition.dy,
+                Size(cons.maxWidth, cons.maxHeight),
+              );
+              if (price != null && price.isFinite && price > 0)
+                widget.onAlertPrice!(double.parse(price.toStringAsFixed(2)));
+            }
             if (drawMode) {
               _drawAt(d.localPosition, Size(cons.maxWidth, cons.maxHeight));
             }
@@ -1822,11 +1855,13 @@ class CandlePainter extends CustomPainter {
 /// price, landscape while open, orientation restored on close.
 class FullscreenChartPage extends StatefulWidget {
   final CandleLoader? loader;
+  final ValueChanged<double>? onAlertPrice;
   final double? livePrice;
   final bool rangeMode;
   const FullscreenChartPage({
     super.key,
     this.loader,
+    this.onAlertPrice,
     this.livePrice,
     this.rangeMode = false,
   });
@@ -1863,6 +1898,7 @@ class _FullscreenChartPageState extends State<FullscreenChartPage> {
                 padding: const EdgeInsets.all(8),
                 child: CandleChartPanel(
                   loader: widget.loader,
+                  onAlertPrice: widget.onAlertPrice,
                   livePrice: widget.livePrice,
                   expand: true,
                   rangeMode: widget.rangeMode,

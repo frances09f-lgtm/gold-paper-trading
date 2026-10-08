@@ -1187,6 +1187,93 @@ class TradeTab extends StatefulWidget {
 }
 
 class _TradeTabState extends State<TradeTab> {
+  Future<void> confirmChartAlert(double level) async {
+    bool above = app.price == null || level >= app.price!;
+    final field = TextEditingController(text: level.toStringAsFixed(2));
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, update) => AlertDialog(
+          title: const Text('Create price alert?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: field,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'XAU/USD level · USD/oz',
+                ),
+              ),
+              SwitchListTile(
+                title: Text(
+                  above ? 'Notify above this level' : 'Notify below this level',
+                ),
+                value: above,
+                onChanged: (v) => update(() => above = v),
+              ),
+              const Text(
+                'Device-local alert, checked on fresh quotes. Background delivery is best-effort. No trade will be placed.',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save alert'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final parsed = double.tryParse(field.text.trim());
+    if (yes != true || !mounted) return;
+    if (parsed == null || !parsed.isFinite || parsed <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a positive alert level. Nothing saved.'),
+        ),
+      );
+      return;
+    }
+    try {
+      final prefs = app.prefs;
+      if (prefs == null) throw StateError('Alert storage not ready.');
+      final alert = PriceAlert(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        level: parsed,
+        above: above,
+        createdAt: DateTime.now(),
+      );
+      final saved = await prefs.setString(
+        'tj_price_alerts',
+        jsonEncode([...app.alerts, alert].map((a) => a.toJson()).toList()),
+      );
+      if (!saved) throw StateError('Could not save alert.');
+      app.alerts.add(alert);
+      app.notifyListeners();
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Alert saved: ${above ? "above" : "below"} ${parsed.toStringAsFixed(2)} USD/oz.',
+            ),
+          ),
+        );
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save alert. Try again.')),
+        );
+    }
+  }
+
   final chartKey = GlobalKey<CandleChartPanelState>();
   bool explaining = false;
   Future<void> explainChart() async {
@@ -1389,6 +1476,7 @@ class _TradeTabState extends State<TradeTab> {
           ),
           CandleChartPanel(
             key: chartKey,
+            onAlertPrice: confirmChartAlert,
             rangeMode: true,
             loader:
                 widget.candleLoaderOverride ??

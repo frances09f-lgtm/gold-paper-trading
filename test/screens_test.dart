@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gold_paper_trading/main.dart';
 import 'package:gold_paper_trading/market_data/models.dart';
@@ -171,13 +176,51 @@ void main() {
       await t.pump();
       expect(find.text('SELL'), findsOneWidget);
       expect(find.textContaining('(selected)'), findsNothing);
-      expect(find.text('SELL paper order'), findsOneWidget);
+      expect(find.text('SELL GOLD · Paper order'), findsOneWidget);
       expect(app.positions.length, count);
       await t.pumpAndSettle();
-      expect(t.getRect(find.text('New order')).top, lessThan(200));
+      expect(find.text('New order'), findsNothing);
+      expect(find.textContaining('Place Order at'), findsOneWidget);
       expect(t.takeException(), isNull);
     },
   );
+  testWidgets('paper order sheet preview', (t) async {
+    final app = demoState();
+    t.view.physicalSize = const Size(824, 1830);
+    t.view.devicePixelRatio = 2;
+    addTearDown(t.view.reset);
+    final key = GlobalKey();
+    await t.pumpWidget(
+      RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: TradeTab(app: app, candleLoaderOverride: testCandles),
+          ),
+        ),
+      ),
+    );
+    await t.pump();
+    await t.tap(find.text('BUY'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Buy When Price is'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('TP / SL'));
+    await t.pumpAndSettle();
+    expect(find.text('Quantity (oz)'), findsOneWidget);
+    expect(find.text('New order'), findsNothing);
+    await t.runAsync(() async {
+      final image =
+          await (key.currentContext!.findRenderObject()
+                  as RenderRepaintBoundary)
+              .toImage();
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      await File('/tmp/oro-order-sheet.png')
+          .writeAsBytes(data!.buffer.asUint8List());
+    });
+  });
   testWidgets('positions', (t) async {
     await shoot(t, (app) => PositionsTab(app: app), 'positions');
   });

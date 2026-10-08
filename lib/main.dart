@@ -1,4 +1,8 @@
 import 'dart:async';
+
+import 'user_api_keys.dart';
+import 'pending_orders.dart';
+
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -199,6 +203,20 @@ class AppState extends ChangeNotifier {
   Timer? _priceTimer;
   Timer? _ticker;
   SharedPreferences? prefs;
+  PendingPaperOrders? pendingOrders;
+  Future<void> evaluatePending() async {
+    if (!unlocked || !priceFresh || bid == null || ask == null) return;
+    await pendingOrders?.evaluate(
+      bid: bid!,
+      ask: ask!,
+      fresh: priceFresh,
+      active:
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+      now: DateTime.now().millisecondsSinceEpoch,
+      submit: (o) => openPaper(o.side, o.qty, o.tp, o.sl),
+    );
+    notifyListeners();
+  }
 
   double? effectiveLimit(Map<String, dynamic> t, String key) {
     final local = limits[t['id'].toString()];
@@ -210,6 +228,8 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     UsageReporter.report('app_start');
     prefs = await SharedPreferences.getInstance();
+    pendingOrders = PendingPaperOrders.load(prefs!);
+    await pendingOrders!.save();
     pin = prefs?.getString('tj_pin') ?? '';
     final raw = prefs?.getString('tj_paper_limits');
     if (raw != null) {
@@ -437,6 +457,7 @@ class AppState extends ChangeNotifier {
       priceOk = true;
       notifyListeners();
       OroBridge.noteQuote(prefs, bid, ask, priceAt);
+      unawaited(evaluatePending());
       checkTpsl();
       _checkAlerts();
       _fetching = false;
@@ -478,6 +499,7 @@ class AppState extends ChangeNotifier {
         priceOk = true;
         notifyListeners();
         OroBridge.noteQuote(prefs, bid, ask, priceAt);
+        unawaited(evaluatePending());
         checkTpsl();
         _checkAlerts();
         _fetching = false;
@@ -798,6 +820,7 @@ ThemeData buildAppTheme() => ThemeData(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await UserApiKeys.load();
   // Local notifications + background TP/SL / alert checks (Oro request).
   // Android WorkManager minimum cadence is ~15 min; failures degrade silently.
   try {
@@ -1023,18 +1046,17 @@ class TradeTab extends StatefulWidget {
 
 class _TradeTabState extends State<TradeTab> {
   String dir = 'buy';
-  final orderKey = GlobalKey();
-  void selectSide(String side) {
+  Future<void> selectSide(String side) async {
     setState(() => dir = side);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = orderKey.currentContext;
-      if (ctx != null && mounted)
-        Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 250),
-          alignment: 0.05,
-        );
-    });
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF28364F),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => PaperOrderSheet(app: app, side: side),
+    );
   }
 
   final qtyCtrl = TextEditingController(text: '1');
@@ -1047,7 +1069,7 @@ class _TradeTabState extends State<TradeTab> {
 
   // Stage (b): real candle service. Null when no API key is configured;
   // the chart panel then says so instead of drawing demo bars.
-  final TwelveDataCandleService? _candles = MarketDataConfig.apiKey.isEmpty
+  TwelveDataCandleService? get _candles => MarketDataConfig.apiKey.isEmpty
       ? null
       : TwelveDataCandleService(apiKey: MarketDataConfig.apiKey);
 
@@ -1129,6 +1151,18 @@ class _TradeTabState extends State<TradeTab> {
               ],
             ),
           ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ApiKeysScreen()),
+                );
+                if (mounted) setState(() {});
+              },
+              child: const Text('API settings'),
+            ),
+          ),
           CandleChartPanel(
             rangeMode: true,
             loader:
@@ -1137,7 +1171,7 @@ class _TradeTabState extends State<TradeTab> {
                     ? null
                     : (iv) async {
                         final spec = tradeRangeSpec(iv);
-                        final data = await _candles.fetchCandles(
+                        final data = await _candles!.fetchCandles(
                           Instrument.xauUsd,
                           interval: spec.$1,
                           limit: spec.$2,
@@ -1268,145 +1302,44 @@ class _TradeTabState extends State<TradeTab> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Spread USD/oz · ${fresh ? 'Live quote' : 'Quote stale or unavailable'} · Choose a side, then review the order below',
+            'Spread USD/oz · ${fresh ? 'Live quote' : 'Quote stale or unavailable'} · Tap a side to open the order sheet',
             textAlign: TextAlign.center,
             style: const TextStyle(color: cDim, fontSize: 10),
           ),
           const SizedBox(height: 10),
+          if (app.pendingOrders != null) ...[
+            const SizedBox(height: 12),
+            ...app.pendingOrders!.orders
+                .where(
+                  (o) =>
+                      o.status == 'pending' ||
+                      o.status == 'needsReview' ||
+                      o.status == 'submitting',
+                )
+                .map(
+                  (o) => Card(
+                    child: ListTile(
+                      title: Text(
+                        '${o.side.toUpperCase()} ${o.qty} oz ${o.above ? "at or above" : "at or below"} ${fmt(o.trigger)}',
+                      ),
+                      subtitle: Text(
+                        '${o.status} · ${o.gtc ? "GTC" : "expires at local midnight"} · fills only while Oro is open, needs internet${o.note == null ? "" : "\n${o.note}"}',
+                      ),
+                      trailing: o.status == 'pending'
+                          ? IconButton(
+                              icon: const Icon(Icons.close),
+                              tooltip: 'Cancel pending order',
+                              onPressed: () async {
+                                await app.pendingOrders!.cancel(o.id);
+                                if (mounted) setState(() {});
+                              },
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+          ],
           const SessionsStrip(),
-          const SizedBox(height: 10),
-          Text(
-            'New order',
-            key: orderKey,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 10),
-          card(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '${dir.toUpperCase()} paper order',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: qtyCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Size (oz of gold)',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: tpCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Take profit (optional)',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: slCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Stop loss (optional)',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                _riskRow(),
-                if (err.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      err,
-                      style: const TextStyle(color: cRed, fontSize: 12),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: dir == 'buy' ? cGreen : cRed,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: (!fresh || opening)
-                      ? null
-                      : () async {
-                          final q = parseNum(qtyCtrl.text);
-                          if (q == null || q <= 0) {
-                            setState(
-                              () => err = 'Enter a size in oz (like 0.5 or 1).',
-                            );
-                            return;
-                          }
-                          setState(() {
-                            opening = true;
-                            err = '';
-                          });
-                          final warn = app.limitWarning();
-                          if (warn != null && !app.blockOnLimit) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Warning: $warn'),
-                                duration: const Duration(seconds: 3),
-                              ),
-                            );
-                          }
-                          final r = await app.openPaper(
-                            dir,
-                            q,
-                            parseNum(tpCtrl.text),
-                            parseNum(slCtrl.text),
-                          );
-                          if (!mounted) return;
-                          if (r != null) {
-                            setState(() => err = r);
-                          } else {
-                            tpCtrl.clear();
-                            slCtrl.clear();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${dir.toUpperCase()} opened at ${fmt(app.price)}',
-                                ),
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                          setState(() => opening = false);
-                        },
-                  child: Text(
-                    opening
-                        ? 'Opening...'
-                        : '${dir == 'buy' ? 'Buy' : 'Sell'} at live price',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'TP/SL auto-close works only while the app is open.',
-                  style: TextStyle(color: cDim, fontSize: 11),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 10),
           card(
             Column(
@@ -3905,7 +3838,7 @@ class _AiTabState extends State<AiTab> {
                 const SizedBox(height: 4),
                 Text(
                   !st.keyConfigured
-                      ? 'AI key missing in this build - cannot run'
+                      ? 'Add your Groq key in API settings'
                       : st.pausedReason != null
                       ? 'Paused: ${st.pausedReason}'
                       : st.enabled
@@ -3918,9 +3851,18 @@ class _AiTabState extends State<AiTab> {
                     fontSize: 12,
                   ),
                 ),
+                OutlinedButton(
+                  onPressed: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const ApiKeysScreen()),
+                    );
+                    _refresh();
+                  },
+                  child: const Text('API settings'),
+                ),
                 if (st.keyConfigured)
                   const Text(
-                    'Groq key built in - nothing to enter',
+                    'Using your saved Groq key',
                     style: TextStyle(color: cDim, fontSize: 11),
                   ),
                 if (st.pausedReason != null && st.enabled) ...[
@@ -4058,6 +4000,425 @@ class _AiTabState extends State<AiTab> {
             ),
           ),
       ],
+    );
+  }
+}
+
+class ApiKeysScreen extends StatefulWidget {
+  const ApiKeysScreen({super.key});
+  @override
+  State<ApiKeysScreen> createState() => _ApiKeysScreenState();
+}
+
+class _ApiKeysScreenState extends State<ApiKeysScreen> {
+  final groq = TextEditingController(text: UserApiKeys.groq);
+  final candles = TextEditingController(text: UserApiKeys.candles);
+  @override
+  void dispose() {
+    groq.dispose();
+    candles.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('API settings')),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text(
+          'Paste your own keys here. They are stored securely on this phone, never built into the APK. Do not send keys in chat.',
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: groq,
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          decoration: const InputDecoration(labelText: 'Groq API key'),
+        ),
+        const Text(
+          'Create a key in your Groq console. Used for AI analysis, not required for manual paper trades.',
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: candles,
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          decoration: const InputDecoration(labelText: 'Twelve Data API key'),
+        ),
+        const Text(
+          'Get your own key from the Twelve Data account dashboard. Used for historical candles. Current Swissquote quotes do not need this key.',
+        ),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: () async {
+            await UserApiKeys.save(groq.text, candles.text);
+            if (context.mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('API keys saved')));
+              Navigator.pop(context);
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+}
+
+class PaperOrderSheet extends StatefulWidget {
+  final AppState app;
+  final String side;
+  const PaperOrderSheet({super.key, required this.app, required this.side});
+  @override
+  State<PaperOrderSheet> createState() => _PaperOrderSheetState();
+}
+
+class _PaperOrderSheetState extends State<PaperOrderSheet> {
+  double? parseNum(String s) => double.tryParse(s.trim());
+  final quantity = TextEditingController(text: '0.01');
+  final tp = TextEditingController();
+  final sl = TextEditingController();
+  bool tpsl = false, sending = false;
+  bool pending = false, gtc = true;
+  final trigger = TextEditingController();
+  String? error;
+  @override
+  void initState() {
+    super.initState();
+    widget.app.addListener(refresh);
+  }
+
+  void refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.app.removeListener(refresh);
+    quantity.dispose();
+    trigger.dispose();
+    tp.dispose();
+    sl.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    if (sending) return;
+    final q = parseNum(quantity.text);
+    if (q == null || !q.isFinite || q <= 0) {
+      setState(() => error = 'Enter a positive quantity in oz.');
+      return;
+    }
+    final take = tpsl ? parseNum(tp.text) : null,
+        stop = tpsl ? parseNum(sl.text) : null;
+    if (tpsl &&
+        ((tp.text.trim().isNotEmpty && (take == null || !take.isFinite)) ||
+            (sl.text.trim().isNotEmpty && (stop == null || !stop.isFinite)))) {
+      setState(
+        () => error = 'Enter valid TP and SL prices, or leave them empty.',
+      );
+      return;
+    }
+    if (pending) {
+      final price = parseNum(trigger.text);
+      final reference = widget.side == 'buy' ? widget.app.ask : widget.app.bid;
+      if (price == null ||
+          !price.isFinite ||
+          price <= 0 ||
+          reference == null ||
+          !widget.app.priceFresh) {
+        setState(
+          () => error =
+              'Enter a positive trigger price and wait for a fresh quote.',
+        );
+        return;
+      }
+      final store = widget.app.pendingOrders;
+      if (store == null) {
+        setState(
+          () => error = 'Pending storage is not ready. Try reopening Oro.',
+        );
+        return;
+      }
+      final now = DateTime.now();
+      setState(() => sending = true);
+      store.orders.add(
+        PendingPaperOrder(
+          id: now.microsecondsSinceEpoch.toString(),
+          side: widget.side,
+          qty: q,
+          trigger: price,
+          above: price >= reference,
+          gtc: gtc,
+          createdAt: now.millisecondsSinceEpoch,
+          expiresAt: DateTime(
+            now.year,
+            now.month,
+            now.day + 1,
+          ).millisecondsSinceEpoch,
+          tp: take,
+          sl: stop,
+        ),
+      );
+      try {
+        await store.save();
+      } catch (_) {
+        store.orders.removeLast();
+        if (mounted)
+          setState(() {
+            sending = false;
+            error = 'Could not save the pending order.';
+          });
+        return;
+      }
+      widget.app.notifyListeners();
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Paper pending order saved. Fills only while Oro is open, needs internet.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      sending = true;
+      error = null;
+    });
+    final r = await widget.app.openPaper(widget.side, q, take, stop);
+    if (!mounted) return;
+    if (r != null) {
+      setState(() {
+        sending = false;
+        error = r;
+      });
+      return;
+    }
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${widget.side.toUpperCase()} paper order opened · $q oz',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = widget.app;
+    final px = widget.side == 'buy' ? app.ask : app.bid;
+    final q = parseNum(quantity.text);
+    final fresh = app.priceFresh && px != null;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          12,
+          24,
+          24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 52,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cDim,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '${widget.side.toUpperCase()} GOLD · Paper order',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Chip(label: Text('Quantity (oz)')),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: sending
+                        ? null
+                        : () {
+                            quantity.text =
+                                ((parseNum(quantity.text) ?? .01) - .01)
+                                    .clamp(.01, 100000)
+                                    .toStringAsFixed(2);
+                            setState(() {});
+                          },
+                    icon: const Icon(Icons.remove_circle_outline, size: 36),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: quantity,
+                      onChanged: (_) => setState(() {}),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: sending
+                        ? null
+                        : () {
+                            quantity.text =
+                                ((parseNum(quantity.text) ?? 0) + .01)
+                                    .toStringAsFixed(2);
+                            setState(() {});
+                          },
+                    icon: const Icon(Icons.add_circle_outline, size: 36),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Trade value ${px != null && q != null ? money(px * q) : "unavailable"}',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const Text(
+                'Trade value, not broker margin. Quantity is oz.',
+                style: TextStyle(color: cDim, fontSize: 11),
+              ),
+              const SizedBox(height: 20),
+              SwitchListTile(
+                title: Text(
+                  '${widget.side == 'buy' ? "Buy" : "Sell"} When Price is',
+                ),
+                value: pending,
+                onChanged: sending
+                    ? null
+                    : (v) => setState(() {
+                        pending = v;
+                        if (trigger.text.isEmpty) trigger.text = fmt(px);
+                      }),
+                tileColor: const Color(0xFF34425A),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              if (pending) ...[
+                TextField(
+                  controller: trigger,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(labelText: 'Price'),
+                ),
+                Text('Current ${widget.side} price: ${fmt(px)}'),
+                SwitchListTile(
+                  title: const Text('Good Until Cancelled'),
+                  subtitle: Text(
+                    gtc
+                        ? 'Until cancelled or filled'
+                        : 'Expires at local midnight',
+                  ),
+                  value: gtc,
+                  onChanged: (v) => setState(() => gtc = v),
+                ),
+                const Text(
+                  'Fills only while Oro is open, needs internet. Execution is at the next available side quote, not guaranteed at the trigger price.',
+                  style: TextStyle(color: cDim, fontSize: 11),
+                ),
+                const SizedBox(height: 16),
+              ],
+              SwitchListTile(
+                title: const Text('TP / SL'),
+                value: tpsl,
+                onChanged: sending ? null : (v) => setState(() => tpsl = v),
+                tileColor: const Color(0xFF34425A),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              if (tpsl) const Chip(label: Text('Price levels')),
+              if (tpsl)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: tp,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Take Profit Level (optional)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: sl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Stop Loss Level (optional)',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+              if (error != null)
+                Text(error!, style: const TextStyle(color: cRed)),
+              if (!fresh)
+                const Text(
+                  'Quote stale or unavailable. Wait for a fresh quote.',
+                  style: TextStyle(color: cRed),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: !fresh || sending ? null : submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: widget.side == 'buy'
+                        ? const Color(0xFF2BBB97)
+                        : const Color(0xFFDE1557),
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                  ),
+                  child: Text(
+                    sending
+                        ? 'Placing...'
+                        : 'Place Order at ${pending ? trigger.text : fmt(px)}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                pending
+                    ? 'Pending paper order. Fills only while Oro is open, needs internet.'
+                    : 'Market paper order. Spread/slippage apply. TP/SL checks can be delayed when the app is closed.',
+                style: TextStyle(color: cDim, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

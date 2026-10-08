@@ -5,8 +5,12 @@ library;
 
 import 'dart:convert';
 
+import 'user_api_keys.dart';
+
 import 'package:http/http.dart' as http;
+
 import 'usage_reporter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ai_brain.dart';
@@ -22,13 +26,17 @@ class AiLogEntry {
   final String text;
   const AiLogEntry(this.at, this.kind, this.text);
 
-  Map<String, dynamic> toJson() =>
-      {'at': at.toIso8601String(), 'kind': kind, 'text': text};
+  Map<String, dynamic> toJson() => {
+    'at': at.toIso8601String(),
+    'kind': kind,
+    'text': text,
+  };
   static AiLogEntry fromJson(Map<String, dynamic> j) => AiLogEntry(
-      DateTime.tryParse(j['at'] as String? ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0),
-      j['kind'] as String? ?? 'decision',
-      j['text'] as String? ?? '');
+    DateTime.tryParse(j['at'] as String? ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    j['kind'] as String? ?? 'decision',
+    j['text'] as String? ?? '',
+  );
 }
 
 /// On-device AI log (like NotificationLog), capped at 100.
@@ -42,7 +50,9 @@ class AiLog {
       entries.insert(0, AiLogEntry(DateTime.now(), kind, text));
       if (entries.length > 100) entries.removeRange(100, entries.length);
       await prefs.setString(
-          _key, jsonEncode(entries.map((e) => e.toJson()).toList()));
+        _key,
+        jsonEncode(entries.map((e) => e.toJson()).toList()),
+      );
     } catch (_) {}
   }
 
@@ -101,6 +111,7 @@ class AutoTrade {
   static const cadence = Duration(minutes: 15);
 
   static Future<AutoTradeStatus> status(SharedPreferences prefs) async {
+    await UserApiKeys.load();
     _rollDay(prefs);
     return AutoTradeStatus(
       enabled: prefs.getBool(_enabledKey) ?? false,
@@ -165,13 +176,16 @@ class AutoTrade {
 
   /// One decision cycle. [manual] = user tapped "Think now" (skips cadence).
   /// Returns a human summary of what happened.
-  static Future<String> think(SharedPreferences prefs,
-      {bool manual = false, GroqBrain? brain}) async {
+  static Future<String> think(
+    SharedPreferences prefs, {
+    bool manual = false,
+    GroqBrain? brain,
+  }) async {
     final st = await status(prefs);
     UsageReporter.report('auto_tick', {'on': st.enabled, 'manual': manual});
     if (!st.enabled) return 'Auto-trade is off';
     if (!st.keyConfigured) {
-      await _pause(prefs, 'AI key missing in this build');
+      await _pause(prefs, 'Add your Groq key in API settings');
       return 'AI key missing - auto-trade paused';
     }
     if (st.pausedReason != null && !manual) {
@@ -186,7 +200,8 @@ class AutoTrade {
     final cooldownRaw = prefs.getString(_cooldownKey);
     if (!manual && cooldownRaw != null) {
       final until = DateTime.tryParse(cooldownRaw);
-      if (until != null && now.isBefore(until)) return 'Cooling down after a close';
+      if (until != null && now.isBefore(until))
+        return 'Cooling down after a close';
     }
     await prefs.setString(_lastRunKey, now.toIso8601String());
 
@@ -228,13 +243,15 @@ class AutoTrade {
       return 'Could not read paper account - $stateErr';
     }
     final balance = (state['balance'] as num).toDouble();
-    final positions =
-        List<Map<String, dynamic>>.from(state['positions'] as List? ?? []);
+    final positions = List<Map<String, dynamic>>.from(
+      state['positions'] as List? ?? [],
+    );
     // paper_state returns the FULL trade history, not just open trades.
     // Everything below must reason over the open ones only, or any closed
     // trade in history reads as "a position is already open" forever.
-    final openPositions =
-        positions.where((p) => p['status'] == 'open').toList();
+    final openPositions = positions
+        .where((p) => p['status'] == 'open')
+        .toList();
 
     // Day-start balance for the drawdown rail.
     if (prefs.getString(_dayBalKey) == null) {
@@ -247,22 +264,25 @@ class AutoTrade {
     // Detect a close of OUR auto trade since the last tick: update the
     // loss streak + start the cooldown.
     final openId = prefs.getString(_openIdKey);
-    if (openId != null &&
-        !openPositions.any((p) => '${p['id']}' == openId)) {
+    if (openId != null && !openPositions.any((p) => '${p['id']}' == openId)) {
       final entryEquity = prefs.getDouble(_openEquityKey) ?? balance;
       final losses = (prefs.getInt(_lossesKey) ?? 0);
       if (balance < entryEquity - 0.005) {
         await prefs.setInt(_lossesKey, losses + 1);
-        await AiLog.add('trade',
-            'Auto position closed at a loss (streak ${losses + 1})');
+        await AiLog.add(
+          'trade',
+          'Auto position closed at a loss (streak ${losses + 1})',
+        );
       } else {
         await prefs.setInt(_lossesKey, 0);
         await AiLog.add('trade', 'Auto position closed at a profit');
       }
       await prefs.remove(_openIdKey);
       await prefs.remove(_openEquityKey);
-      await prefs.setString(_cooldownKey,
-          now.add(cooldownAfterClose).toIso8601String());
+      await prefs.setString(
+        _cooldownKey,
+        now.add(cooldownAfterClose).toIso8601String(),
+      );
       if ((prefs.getInt(_lossesKey) ?? 0) >= maxConsecutiveLosses) {
         await _pause(prefs, '2 consecutive losses - paused for today');
         return 'Paused: 2 consecutive losses';
@@ -271,7 +291,10 @@ class AutoTrade {
 
     // Rails that stop opening.
     if ((prefs.getInt(_countKey) ?? 0) >= maxTradesPerDay) {
-      await _pause(prefs, 'Daily limit of $maxTradesPerDay auto trades reached');
+      await _pause(
+        prefs,
+        'Daily limit of $maxTradesPerDay auto trades reached',
+      );
       return 'Paused: daily trade limit';
     }
     if (dayBal > 0 && dayPnl <= -dailyDrawdownPct * dayBal) {
@@ -281,8 +304,10 @@ class AutoTrade {
     if (openPositions.isNotEmpty) {
       // One position at a time for the AI: never stack.
       if (openId == null) {
-        await AiLog.add('decision',
-            'Skipped: a position is already open (not opened by AI)');
+        await AiLog.add(
+          'decision',
+          'Skipped: a position is already open (not opened by AI)',
+        );
       }
       UsageReporter.report('auto_skip', {'why': 'position_open'});
       return 'Position already open - holding off';
@@ -315,15 +340,21 @@ class AutoTrade {
         return 'Paused: ${e.message}';
       }
       await AiLog.add(
-          'error', 'AI unavailable (${e.message}) - retrying next cycle');
+        'error',
+        'AI unavailable (${e.message}) - retrying next cycle',
+      );
       return 'AI unavailable this cycle - will retry';
     }
 
-    UsageReporter.report(
-        'ai_decision', {'action': d.action, 'conf': d.confidence});
+    UsageReporter.report('ai_decision', {
+      'action': d.action,
+      'conf': d.confidence,
+    });
 
-    await AiLog.add('decision',
-        '${d.action.toUpperCase()} (${d.confidence}) - ${d.reason.isEmpty ? 'no reason given' : d.reason}');
+    await AiLog.add(
+      'decision',
+      '${d.action.toUpperCase()} (${d.confidence}) - ${d.reason.isEmpty ? 'no reason given' : d.reason}',
+    );
 
     if (!d.isTrade) return 'Brain says ${d.action.toUpperCase()} - no trade';
 
@@ -367,8 +398,11 @@ class AutoTrade {
   static Future<(double, double)?> _fetchQuote() async {
     try {
       final r = await http
-          .get(Uri.parse(
-              'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'))
+          .get(
+            Uri.parse(
+              'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD',
+            ),
+          )
           .timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return null;
       final list = jsonDecode(r.body) as List;
@@ -393,12 +427,15 @@ class AutoTrade {
   /// Returns (state, error). error is a precise reason when state is null
   /// so the AI tab can say WHAT failed instead of a bare "could not read".
   static Future<(Map<String, dynamic>?, String?)> _paperState(
-      String pin) async {
+    String pin,
+  ) async {
     try {
       final r = await http
-          .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_state'),
-              headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
-              body: jsonEncode({'p': pin}))
+          .post(
+            Uri.parse('$_sbUrl/rest/v1/rpc/paper_state'),
+            headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
+            body: jsonEncode({'p': pin}),
+          )
           .timeout(const Duration(seconds: 20));
       if (r.statusCode == 400 && r.body.contains('bad pin')) {
         return (null, 'PIN rejected - unlock the app again to refresh it');
@@ -416,25 +453,34 @@ class AutoTrade {
 
   /// Opens a paper position through the same RPC as manual trades.
   /// Returns the new trade id, or null on failure.
-  static Future<String?> _paperOpen(String pin, String dir, double price,
-      double qty, double? tp, double? sl) async {
+  static Future<String?> _paperOpen(
+    String pin,
+    String dir,
+    double price,
+    double qty,
+    double? tp,
+    double? sl,
+  ) async {
     try {
       final r = await http
-          .post(Uri.parse('$_sbUrl/rest/v1/rpc/paper_open'),
-              headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'p': pin,
-                'd': dir,
-                'price': price,
-                'q': qty,
-                'target': tp,
-                'stop': sl
-              }))
+          .post(
+            Uri.parse('$_sbUrl/rest/v1/rpc/paper_open'),
+            headers: {'apikey': _sbKey, 'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'p': pin,
+              'd': dir,
+              'price': price,
+              'q': qty,
+              'target': tp,
+              'stop': sl,
+            }),
+          )
           .timeout(const Duration(seconds: 20));
       if (r.statusCode >= 400) return null;
       final (state, _) = await _paperState(pin);
-      final positions =
-          List<Map<String, dynamic>>.from(state?['positions'] as List? ?? []);
+      final positions = List<Map<String, dynamic>>.from(
+        state?['positions'] as List? ?? [],
+      );
       // paper_state returns full history, newest first (opened_at DESC);
       // only an OPEN position can be ours.
       final open = positions.where((p) => p['status'] == 'open').toList();

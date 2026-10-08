@@ -8,7 +8,10 @@ library;
 
 import 'dart:convert';
 
+import 'user_api_keys.dart';
+
 import 'package:http/http.dart' as http;
+
 import 'usage_reporter.dart';
 
 import 'chart/indicators.dart';
@@ -17,9 +20,11 @@ import 'market_data/models.dart';
 class AiConfig {
   /// Groq API key from the build environment (--dart-define=GROQ_API_KEY),
   /// never hard-coded. Empty means auto-trade cannot run - say so.
-  static const groqApiKey = String.fromEnvironment('GROQ_API_KEY');
-  static const model =
-      String.fromEnvironment('GROQ_MODEL', defaultValue: 'openai/gpt-oss-120b');
+  static String get groqApiKey => UserApiKeys.groq;
+  static const model = String.fromEnvironment(
+    'GROQ_MODEL',
+    defaultValue: 'openai/gpt-oss-120b',
+  );
   static const fallbackModel = 'openai/gpt-oss-20b';
 }
 
@@ -71,13 +76,14 @@ class AiDecision {
       (action == 'buy' || action == 'sell') && confidence == 'high';
 
   static AiDecision hold(String reason, {String raw = ''}) => AiDecision(
-      action: 'hold',
-      confidence: 'low',
-      sl: null,
-      tp: null,
-      sizePct: 10,
-      reason: reason,
-      raw: raw);
+    action: 'hold',
+    confidence: 'low',
+    sl: null,
+    tp: null,
+    sizePct: 10,
+    reason: reason,
+    raw: raw,
+  );
 }
 
 /// Chart advice (user-facing "Advice" button): a read of support/
@@ -100,14 +106,17 @@ class AdviceResult {
   final double? tp; // absolute price, clamped against the real quote
   final double sizePct; // 1..25, % of paper balance as notional
   final String raw;
-  const AdviceResult(this.verdict, this.reasons,
-      {this.buyPct,
-      this.sellPct,
-      this.confidence = 'low',
-      this.sl,
-      this.tp,
-      this.sizePct = 10,
-      this.raw = ''});
+  const AdviceResult(
+    this.verdict,
+    this.reasons, {
+    this.buyPct,
+    this.sellPct,
+    this.confidence = 'low',
+    this.sl,
+    this.tp,
+    this.sizePct = 10,
+    this.raw = '',
+  });
 
   /// True only when the model is sure of a direction - the app then opens
   /// the trade immediately at the live price instead of just advising.
@@ -144,7 +153,7 @@ double? atr(List<Candle> candles, int period) {
     final tr = [
       c.high - c.low,
       (c.high - prevClose).abs(),
-      (c.low - prevClose).abs()
+      (c.low - prevClose).abs(),
     ].reduce((a, b) => a > b ? a : b);
     trs.add(tr);
   }
@@ -154,7 +163,9 @@ double? atr(List<Candle> candles, int period) {
 String buildPrompt(MarketSnapshot s) {
   final b = StringBuffer();
   b.writeln('Instrument: XAU/USD (gold spot).');
-  b.writeln('Live quote: bid ${s.bid.toStringAsFixed(2)}, ask ${s.ask.toStringAsFixed(2)}.');
+  b.writeln(
+    'Live quote: bid ${s.bid.toStringAsFixed(2)}, ask ${s.ask.toStringAsFixed(2)}.',
+  );
   final cs = s.candles;
   if (cs.length >= 50) {
     final s20 = sma(cs, 20).last;
@@ -163,22 +174,32 @@ String buildPrompt(MarketSnapshot s) {
     final macd = macdLine(cs);
     final a = atr(cs, 14);
     b.writeln('15-minute candles, last ${cs.length}:');
-    b.writeln('  SMA20 ${s20.toStringAsFixed(2)} | EMA50 ${e50.toStringAsFixed(2)} | RSI14 ${r14.toStringAsFixed(1)} | MACD ${macd.isEmpty ? 'n/a' : macd.last.toStringAsFixed(2)} | ATR14 ${a?.toStringAsFixed(2) ?? 'n/a'}');
+    b.writeln(
+      '  SMA20 ${s20.toStringAsFixed(2)} | EMA50 ${e50.toStringAsFixed(2)} | RSI14 ${r14.toStringAsFixed(1)} | MACD ${macd.isEmpty ? 'n/a' : macd.last.toStringAsFixed(2)} | ATR14 ${a?.toStringAsFixed(2) ?? 'n/a'}',
+    );
     // Recent structure, same read as the in-app bias panel.
     final n = cs.length;
     final last = cs.sublist(n - 10);
     final prev = cs.sublist(n - 20, n - 10);
-    double hiOf(List<Candle> l) => l.fold(-double.infinity, (x, c) => x > c.high ? x : c.high);
-    double loOf(List<Candle> l) => l.fold(double.infinity, (x, c) => x < c.low ? x : c.low);
-    b.writeln('  Structure: last10 high ${hiOf(last).toStringAsFixed(1)} low ${loOf(last).toStringAsFixed(1)} | prev10 high ${hiOf(prev).toStringAsFixed(1)} low ${loOf(prev).toStringAsFixed(1)}');
+    double hiOf(List<Candle> l) =>
+        l.fold(-double.infinity, (x, c) => x > c.high ? x : c.high);
+    double loOf(List<Candle> l) =>
+        l.fold(double.infinity, (x, c) => x < c.low ? x : c.low);
+    b.writeln(
+      '  Structure: last10 high ${hiOf(last).toStringAsFixed(1)} low ${loOf(last).toStringAsFixed(1)} | prev10 high ${hiOf(prev).toStringAsFixed(1)} low ${loOf(prev).toStringAsFixed(1)}',
+    );
     b.writeln('  Last 12 candles (time,o,h,l,c):');
     for (final c in cs.sublist(n - 12)) {
-      b.writeln('  ${c.time.toIso8601String()},${c.open.toStringAsFixed(2)},${c.high.toStringAsFixed(2)},${c.low.toStringAsFixed(2)},${c.close.toStringAsFixed(2)}');
+      b.writeln(
+        '  ${c.time.toIso8601String()},${c.open.toStringAsFixed(2)},${c.high.toStringAsFixed(2)},${c.low.toStringAsFixed(2)},${c.close.toStringAsFixed(2)}',
+      );
     }
   } else {
     b.writeln('Only ${cs.length} candles available - thin data.');
   }
-  b.writeln('Paper account: balance \$${s.balance.toStringAsFixed(2)}, PnL today ${s.dayPnl.toStringAsFixed(2)}, auto trades today ${s.tradesToday}.');
+  b.writeln(
+    'Paper account: balance \$${s.balance.toStringAsFixed(2)}, PnL today ${s.dayPnl.toStringAsFixed(2)}, auto trades today ${s.tradesToday}.',
+  );
   b.writeln('Open position: ${s.openPosition ?? 'none'}.');
   return b.toString();
 }
@@ -202,8 +223,12 @@ const _systemPrompt =
 /// least 1.5x the risk distance on the correct side. Missing or wrong-side
 /// values get defaults so a trade ALWAYS carries TP and SL - never fake
 /// numbers, everything derives from the live reference price.
-(double, double) clampTargets(
-    {required bool dirUp, required double ref, double? sl, double? tp}) {
+(double, double) clampTargets({
+  required bool dirUp,
+  required double ref,
+  double? sl,
+  double? tp,
+}) {
   const minStop = 0.003, maxStop = 0.02;
   double defaultStop() => dirUp ? ref * (1 - 0.006) : ref * (1 + 0.006);
   if (sl == null || (dirUp ? sl >= ref : sl <= ref)) {
@@ -224,7 +249,11 @@ const _systemPrompt =
 
 /// Parse + validate + clamp the model output against real prices.
 /// Malformed output becomes a hold - the engine never acts on garbage.
-AiDecision parseDecision(String content, {required double buyRef, required double sellRef}) {
+AiDecision parseDecision(
+  String content, {
+  required double buyRef,
+  required double sellRef,
+}) {
   String jsonText;
   final start = content.indexOf('{');
   final end = content.lastIndexOf('}');
@@ -253,16 +282,20 @@ AiDecision parseDecision(String content, {required double buyRef, required doubl
   if (sizePct > 25) sizePct = 25;
 
   if (action == 'hold' || confidence == 'low') {
-    return AiDecision.hold(reason.isEmpty ? 'Model says hold' : reason, raw: content);
+    return AiDecision.hold(
+      reason.isEmpty ? 'Model says hold' : reason,
+      raw: content,
+    );
   }
 
   final ref = action == 'buy' ? buyRef : sellRef;
   final dirUp = action == 'buy';
   final (sl, tp) = clampTargets(
-      dirUp: dirUp,
-      ref: ref,
-      sl: (j['stop_loss'] as num?)?.toDouble(),
-      tp: (j['take_profit'] as num?)?.toDouble());
+    dirUp: dirUp,
+    ref: ref,
+    sl: (j['stop_loss'] as num?)?.toDouble(),
+    tp: (j['take_profit'] as num?)?.toDouble(),
+  );
 
   return AiDecision(
     action: action,
@@ -306,7 +339,8 @@ String buildAdvicePrompt({
   final b = StringBuffer();
   b.writeln('Instrument: XAU/USD (gold spot).');
   b.writeln(
-      'Live quote: bid ${bid.toStringAsFixed(2)}, ask ${ask.toStringAsFixed(2)}.');
+    'Live quote: bid ${bid.toStringAsFixed(2)}, ask ${ask.toStringAsFixed(2)}.',
+  );
   final cs = candles;
   if (cs.length >= 50) {
     final s20 = sma(cs, 20).last;
@@ -316,7 +350,8 @@ String buildAdvicePrompt({
     final a = atr(cs, 14);
     b.writeln('15-minute candles, last ${cs.length}:');
     b.writeln(
-        '  SMA20 ${s20.toStringAsFixed(2)} | EMA50 ${e50.toStringAsFixed(2)} | RSI14 ${r14.toStringAsFixed(1)} | MACD ${macd.isEmpty ? 'n/a' : macd.last.toStringAsFixed(2)} | ATR14 ${a?.toStringAsFixed(2) ?? 'n/a'}');
+      '  SMA20 ${s20.toStringAsFixed(2)} | EMA50 ${e50.toStringAsFixed(2)} | RSI14 ${r14.toStringAsFixed(1)} | MACD ${macd.isEmpty ? 'n/a' : macd.last.toStringAsFixed(2)} | ATR14 ${a?.toStringAsFixed(2) ?? 'n/a'}',
+    );
     final n = cs.length;
     final last = cs.sublist(n - 10);
     final prev = cs.sublist(n - 20, n - 10);
@@ -325,17 +360,20 @@ String buildAdvicePrompt({
     double loOf(List<Candle> l) =>
         l.fold(double.infinity, (x, c) => x < c.low ? x : c.low);
     b.writeln(
-        '  Structure: last10 high ${hiOf(last).toStringAsFixed(1)} low ${loOf(last).toStringAsFixed(1)} | prev10 high ${hiOf(prev).toStringAsFixed(1)} low ${loOf(prev).toStringAsFixed(1)}');
+      '  Structure: last10 high ${hiOf(last).toStringAsFixed(1)} low ${loOf(last).toStringAsFixed(1)} | prev10 high ${hiOf(prev).toStringAsFixed(1)} low ${loOf(prev).toStringAsFixed(1)}',
+    );
     // Swing support/resistance from the last 48 candles.
     final win = cs.sublist(n >= 48 ? n - 48 : 0);
     final swingHi = hiOf(win);
     final swingLo = loOf(win);
     b.writeln(
-        '  Swing range (last ${win.length} candles): resistance ${swingHi.toStringAsFixed(1)}, support ${swingLo.toStringAsFixed(1)}.');
+      '  Swing range (last ${win.length} candles): resistance ${swingHi.toStringAsFixed(1)}, support ${swingLo.toStringAsFixed(1)}.',
+    );
     b.writeln('  Last 12 candles (time,o,h,l,c):');
     for (final c in cs.sublist(n - 12)) {
       b.writeln(
-          '  ${c.time.toIso8601String()},${c.open.toStringAsFixed(2)},${c.high.toStringAsFixed(2)},${c.low.toStringAsFixed(2)},${c.close.toStringAsFixed(2)}');
+        '  ${c.time.toIso8601String()},${c.open.toStringAsFixed(2)},${c.high.toStringAsFixed(2)},${c.low.toStringAsFixed(2)},${c.close.toStringAsFixed(2)}',
+      );
     }
   } else {
     b.writeln('Only ${cs.length} candles available - thin data.');
@@ -343,7 +381,8 @@ String buildAdvicePrompt({
   if (drawnLevels.isNotEmpty) {
     final sorted = [...drawnLevels]..sort();
     b.writeln(
-        'User-drawn chart levels: ${sorted.map((e) => e.toStringAsFixed(1)).join(', ')}.');
+      'User-drawn chart levels: ${sorted.map((e) => e.toStringAsFixed(1)).join(', ')}.',
+    );
   }
   b.writeln('Give your read: buy, sell, or wait, with short reasons.');
   return b.toString();
@@ -351,8 +390,7 @@ String buildAdvicePrompt({
 
 /// Parse the advice reply. Anything malformed becomes a wait with an
 /// honest note - the UI never shows invented analysis.
-AdviceResult parseAdvice(String content,
-    {double? buyRef, double? sellRef}) {
+AdviceResult parseAdvice(String content, {double? buyRef, double? sellRef}) {
   final start = content.indexOf('{');
   final end = content.lastIndexOf('}');
   Map<String, dynamic>? j;
@@ -379,8 +417,12 @@ AdviceResult parseAdvice(String content,
   // stop/targets against the real quote exactly like the auto-trade brain.
   final ref = v == 'buy' ? buyRef : (v == 'sell' ? sellRef : null);
   if (v != 'wait' && conf == 'high' && ref != null) {
-    final (csl, ctp) =
-        clampTargets(dirUp: v == 'buy', ref: ref, sl: sl, tp: tp);
+    final (csl, ctp) = clampTargets(
+      dirUp: v == 'buy',
+      ref: ref,
+      sl: sl,
+      tp: tp,
+    );
     sl = csl;
     tp = ctp;
   } else if (v == 'wait' || conf != 'high') {
@@ -397,14 +439,16 @@ AdviceResult parseAdvice(String content,
   }
 
   return AdviceResult(
-      v, reasons.isEmpty ? 'No reasons given.' : reasons,
-      buyPct: pctOf('buy_pct'),
-      sellPct: pctOf('sell_pct'),
-      confidence: conf,
-      sl: sl,
-      tp: tp,
-      sizePct: sizePct,
-      raw: content);
+    v,
+    reasons.isEmpty ? 'No reasons given.' : reasons,
+    buyPct: pctOf('buy_pct'),
+    sellPct: pctOf('sell_pct'),
+    confidence: conf,
+    sl: sl,
+    tp: tp,
+    sizePct: sizePct,
+    raw: content,
+  );
 }
 
 class GroqBrain {
@@ -413,12 +457,14 @@ class GroqBrain {
 
   Future<AiDecision> decide(MarketSnapshot s) async {
     if (AiConfig.groqApiKey.isEmpty) {
-      throw const BrainException(
-          'GROQ_API_KEY is not configured in this build');
+      throw const BrainException('Add your Groq key in API settings');
     }
     final user = buildPrompt(s);
     var content = await _call(AiConfig.model, user);
-    content ??= await _call(AiConfig.fallbackModel, user); // rate-limit fallback
+    content ??= await _call(
+      AiConfig.fallbackModel,
+      user,
+    ); // rate-limit fallback
     if (content == null) {
       throw const BrainException('Groq call failed or rate-limited');
     }
@@ -436,42 +482,61 @@ class GroqBrain {
     List<double> drawnLevels = const [],
   }) async {
     if (AiConfig.groqApiKey.isEmpty) {
-      throw const BrainException('GROQ_API_KEY is not configured in this build');
+      throw const BrainException('Add your Groq key in API settings');
     }
     final user = buildAdvicePrompt(
-        bid: bid, ask: ask, candles: candles, drawnLevels: drawnLevels);
-    var content = await _call(AiConfig.model, user, system: _adviceSystemPrompt);
-    content ??=
-        await _call(AiConfig.fallbackModel, user, system: _adviceSystemPrompt);
+      bid: bid,
+      ask: ask,
+      candles: candles,
+      drawnLevels: drawnLevels,
+    );
+    var content = await _call(
+      AiConfig.model,
+      user,
+      system: _adviceSystemPrompt,
+    );
+    content ??= await _call(
+      AiConfig.fallbackModel,
+      user,
+      system: _adviceSystemPrompt,
+    );
     if (content == null) {
       throw const BrainException('Groq call failed or rate-limited');
     }
     return parseAdvice(content, buyRef: ask, sellRef: bid);
   }
 
-  Future<String?> _call(String model, String userPrompt,
-      {String? system}) async {
+  Future<String?> _call(
+    String model,
+    String userPrompt, {
+    String? system,
+  }) async {
     try {
       final r = await _client
-          .post(Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-              headers: {
-                'Authorization': 'Bearer ${AiConfig.groqApiKey}',
-                'Content-Type': 'application/json',
-              },
-              body: jsonEncode({
-                'model': model,
-                'messages': [
-                  {'role': 'system', 'content': system ?? _systemPrompt},
-                  {'role': 'user', 'content': userPrompt},
-                ],
-                'temperature': 0.2,
-                'max_tokens': 3000,
-                // gpt-oss is a reasoning model: medium effort gives a real
-                // analysis; low effort answered "hold" almost always.
-                'reasoning_effort': 'medium',
-              }))
+          .post(
+            Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+            headers: {
+              'Authorization': 'Bearer ${AiConfig.groqApiKey}',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'model': model,
+              'messages': [
+                {'role': 'system', 'content': system ?? _systemPrompt},
+                {'role': 'user', 'content': userPrompt},
+              ],
+              'temperature': 0.2,
+              'max_tokens': 3000,
+              // gpt-oss is a reasoning model: medium effort gives a real
+              // analysis; low effort answered "hold" almost always.
+              'reasoning_effort': 'medium',
+            }),
+          )
           .timeout(const Duration(seconds: 30));
-      UsageReporter.report('ai_request', {'model': model, 'ok': r.statusCode == 200});
+      UsageReporter.report('ai_request', {
+        'model': model,
+        'ok': r.statusCode == 200,
+      });
       if (r.statusCode != 200) return null;
       final j = jsonDecode(r.body);
       final choices = j['choices'] as List?;

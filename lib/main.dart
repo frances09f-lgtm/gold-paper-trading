@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'user_api_keys.dart';
 import 'pending_orders.dart';
+import 'paper_margin.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -120,6 +121,16 @@ class AppState extends ChangeNotifier {
 
   double starting = 10000;
   double balance = 10000;
+  int accountRevision = 0;
+  bool openingPaper = false;
+  double? get estimatedFreeMargin => priceFresh && bid != null && ask != null
+      ? PaperMargin.estimate(
+          balance: balance,
+          bid: bid!,
+          ask: ask!,
+          positions: positions,
+        )
+      : null;
   List<Map<String, dynamic>> positions = [];
   int notifUnread = 0;
   List<Map<String, dynamic>> trades = [];
@@ -541,6 +552,7 @@ class AppState extends ChangeNotifier {
       positions = List<Map<String, dynamic>>.from(
         s['positions'] as List? ?? [],
       );
+      accountRevision++;
       notifyListeners();
       // Stage (d): device-local cache so the app opens with last-known
       // state while offline; the network refresh above always wins.
@@ -640,9 +652,25 @@ class AppState extends ChangeNotifier {
     if (warn != null && blockOnLimit) {
       return '$warn - new trades blocked (Daily limits)';
     }
-    final px = entrySidePrice(dir); // buy at ask, sell at bid
-    if (px == null) return 'No fresh live price - cannot open right now.';
+    if (!['buy', 'sell'].contains(dir) || !qty.isFinite || qty <= 0)
+      return 'Enter a valid side and positive oz size.';
+    if (openingPaper)
+      return 'Another paper order is being checked. Wait for its result.';
+    openingPaper = true;
     try {
+      final before = accountRevision;
+      await paperRefresh();
+      if (!unlocked || accountRevision == before)
+        return 'Could not refresh the paper account. No order submitted.';
+      final px = entrySidePrice(dir);
+      if (px == null || !priceFresh)
+        return 'No fresh live bid/ask - cannot open right now.';
+      final marginError = PaperMargin.guard(
+        free: estimatedFreeMargin,
+        price: px,
+        qty: qty,
+      );
+      if (marginError != null) return marginError;
       await rpc('paper_open', {
         'p': pin,
         'd': dir,
@@ -658,6 +686,8 @@ class AppState extends ChangeNotifier {
       return e.message;
     } catch (_) {
       return 'Could not open trade';
+    } finally {
+      openingPaper = false;
     }
   }
 
@@ -4184,7 +4214,7 @@ class PaperOrderSheet extends StatefulWidget {
 
 class _PaperOrderSheetState extends State<PaperOrderSheet> {
   double? parseNum(String s) => double.tryParse(s.trim());
-  final quantity = TextEditingController(text: '0.01');
+  final quantity = TextEditingController(text: '1');
   final tp = TextEditingController();
   final sl = TextEditingController();
   bool tpsl = false, sending = false;
@@ -4401,7 +4431,16 @@ class _PaperOrderSheetState extends State<PaperOrderSheet> {
                 style: const TextStyle(fontSize: 16),
               ),
               const Text(
-                'Trade value, not broker margin. Quantity is oz.',
+                'Quantity is oz. Estimated paper margin uses assumed 1:500, not broker/server margin. No liquidation model.',
+                style: TextStyle(color: cDim, fontSize: 11),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Estimated margin ${px != null && q != null ? money(px * q / PaperMargin.leverage) : "unavailable"} · available ${money(app.estimatedFreeMargin)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const Text(
+                'Account refresh required at submit. Pending orders recheck at fill; no margin reserved. Multiple devices can race. Server may reject.',
                 style: TextStyle(color: cDim, fontSize: 11),
               ),
               const SizedBox(height: 20),

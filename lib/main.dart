@@ -1267,9 +1267,7 @@ class _TradeTabState extends State<TradeTab> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                app.bid == null
-                                    ? '--'
-                                    : fmt(app.bid),
+                                app.bid == null ? '--' : fmt(app.bid),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
@@ -1313,9 +1311,7 @@ class _TradeTabState extends State<TradeTab> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                app.ask == null
-                                    ? '--'
-                                    : fmt(app.ask),
+                                app.ask == null ? '--' : fmt(app.ask),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
@@ -2321,7 +2317,7 @@ class _PositionsTabState extends State<PositionsTab> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Open: ${fmt(open)}',
+                      'Entry: ${fmt(open)} · Size: ${fmt((t['qty'] as num?)?.toDouble())} oz',
                       style: const TextStyle(color: cDim, fontSize: 12),
                     ),
                   ),
@@ -2345,7 +2341,7 @@ class _PositionsTabState extends State<PositionsTab> {
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '$label: ${money(pnl, sign: true)}',
+                        'Projected P/L at $label: ${money(pnl, sign: true)}',
                         style: TextStyle(
                           color: cls(pnl),
                           fontSize: 13,

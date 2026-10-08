@@ -18,8 +18,8 @@ import 'chart/indicators.dart';
 import 'market_data/models.dart';
 
 class AiConfig {
-  /// Groq API key from the build environment (--dart-define=GROQ_API_KEY),
-  /// never hard-coded. Empty means auto-trade cannot run - say so.
+  /// Groq API key from user-supplied encrypted storage,
+  /// never compiled into the APK. Empty means AI cannot run - say so.
   static String get groqApiKey => UserApiKeys.groq;
   static const model = String.fromEnvironment(
     'GROQ_MODEL',

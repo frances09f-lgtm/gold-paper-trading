@@ -26,7 +26,7 @@ class TwelveDataCandleService implements HistoricalCandleService {
   }) async {
     if (apiKey.isEmpty) {
       throw MarketDataException(
-          'no API key configured for $name (set MARKET_DATA_API_KEY)');
+          'Add your Twelve Data key in API settings to load candle history.');
     }
     final uri = Uri.https('api.twelvedata.com', '/time_series', {
       'symbol': instrument.symbol,

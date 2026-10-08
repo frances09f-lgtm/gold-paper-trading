@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -139,6 +141,8 @@ Future<void> shoot(
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
     await loadFonts();
     // Deterministic session strip for goldens.
     SessionsStrip.debugNow = () => DateTime.utc(2026, 10, 7, 14, 0);
@@ -231,11 +235,15 @@ void main() {
       await t.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
-          home: Scaffold(
-            body: TradeTab(app: app, candleLoaderOverride: testCandles),
-          ),
+          home: Root(testApp: app, candleLoaderOverride: testCandles),
         ),
       );
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 300));
+      await t.tap(find.text('AI').first);
       await t.pumpAndSettle();
       await t.ensureVisible(find.text('Explain chart / position'));
       await t.tap(find.text('Explain chart / position'));

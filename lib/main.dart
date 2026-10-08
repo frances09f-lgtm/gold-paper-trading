@@ -894,7 +894,8 @@ class GoldApp extends StatelessWidget {
 
 class Root extends StatefulWidget {
   final AppState? testApp;
-  const Root({super.key, this.testApp});
+  final CandleLoader? candleLoaderOverride;
+  const Root({super.key, this.testApp, this.candleLoaderOverride});
   @override
   State<Root> createState() => _RootState();
 }
@@ -902,6 +903,7 @@ class Root extends StatefulWidget {
 class _RootState extends State<Root> with WidgetsBindingObserver {
   late final AppState app = widget.testApp ?? AppState();
   int tab = 0;
+  final tradeKey = GlobalKey<_TradeTabState>();
 
   @override
   void initState() {
@@ -939,11 +941,14 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               IconButton(
                 tooltip: 'Settings',
                 icon: const Icon(Icons.settings_outlined),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SonaSettingsScreen(app: app),
-                  ),
-                ),
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SonaSettingsScreen(app: app),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
               ),
               IconButton(
                 tooltip: 'Paper account',
@@ -979,7 +984,9 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
               if (!app.unlocked)
                 MaterialBanner(
                   content: Text(
-                    app.unlocking ? 'Connecting saved paper account...' : 'Paper account not connected. Quotes and API settings are available.',
+                    app.unlocking
+                        ? 'Connecting saved paper account...'
+                        : 'Paper account not connected. Quotes are available.',
                   ),
                   actions: [
                     TextButton(
@@ -994,11 +1001,19 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
                 child: IndexedStack(
                   index: tab,
                   children: [
-                    TradeTab(app: app),
+                    TradeTab(
+                      key: tradeKey,
+                      app: app,
+                      candleLoaderOverride: widget.candleLoaderOverride,
+                    ),
                     PositionsTab(app: app),
                     AddTab(app: app),
                     StatsTab(app: app),
-                    AiTab(app: app),
+                    AiTab(
+                      app: app,
+                      onExplainChart: () =>
+                          tradeKey.currentState?.explainChart(),
+                    ),
                   ],
                 ),
               ),
@@ -1416,459 +1431,257 @@ class _TradeTabState extends State<TradeTab> {
     final fresh = app.priceFresh;
     return ColoredBox(
       color: const Color(0xFF10182A),
-      child: ListView(
-        padding: const EdgeInsets.all(14),
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(4, 8, 4, 18),
-            child: Row(
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(14),
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF5C242),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.stacked_bar_chart,
-                    color: Color(0xFF10182A),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                  child: Row(
                     children: [
-                      const Text(
-                        'GOLD',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF5C242),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.stacked_bar_chart,
+                          color: Color(0xFF10182A),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'GOLD',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              'XAU/USD · Paper trading',
+                              style: TextStyle(color: cDim, fontSize: 12),
+                            ),
+                          ],
                         ),
                       ),
                       Text(
-                        'XAU/USD · Paper trading',
-                        style: TextStyle(color: cDim, fontSize: 12),
+                        app.priceOk ? '\$${fmt(app.price)}' : '--',
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                Text(
-                  app.priceOk ? '\$${fmt(app.price)}' : '--',
-                  style: const TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                  ),
+                CandleChartPanel(
+                  key: chartKey,
+                  onAlertPrice: confirmChartAlert,
+                  rangeMode: true,
+                  loader:
+                      widget.candleLoaderOverride ??
+                      (_candles == null
+                          ? null
+                          : (iv) async {
+                              final spec = tradeRangeSpec(iv);
+                              final data = await _candles!.fetchCandles(
+                                Instrument.xauUsd,
+                                interval: spec.$1,
+                                limit: spec.$2,
+                              );
+                              return trimTradeRange(data, iv);
+                            }),
+                  livePrice: app.price,
                 ),
-              ],
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ApiKeysScreen()),
-                );
-                if (mounted) setState(() {});
-              },
-              child: const Text('API settings'),
-            ),
-          ),
-          CandleChartPanel(
-            key: chartKey,
-            onAlertPrice: confirmChartAlert,
-            rangeMode: true,
-            loader:
-                widget.candleLoaderOverride ??
-                (_candles == null
-                    ? null
-                    : (iv) async {
-                        final spec = tradeRangeSpec(iv);
-                        final data = await _candles!.fetchCandles(
-                          Instrument.xauUsd,
-                          interval: spec.$1,
-                          limit: spec.$2,
-                        );
-                        return trimTradeRange(data, iv);
-                      }),
-            livePrice: app.price,
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: explaining ? null : explainChart,
-              icon: const Icon(Icons.lightbulb_outline, size: 18),
-              label: Text(
-                explaining
-                    ? 'Explaining saved data...'
-                    : 'Explain chart / position',
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFFDE1557),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => selectSide('sell'),
-                        child: SizedBox(
-                          height: 52,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'SELL',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                app.bid == null ? '--' : fmt(app.bid),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
+                if (app.pendingOrders != null) ...[
+                  const SizedBox(height: 12),
+                  ...app.pendingOrders!.orders
+                      .where(
+                        (o) =>
+                            o.status == 'pending' ||
+                            o.status == 'needsReview' ||
+                            o.status == 'submitting',
+                      )
+                      .map(
+                        (o) => Card(
+                          child: ListTile(
+                            title: Text(
+                              '${o.side.toUpperCase()} ${o.qty} oz ${o.above ? "at or above" : "at or below"} ${fmt(o.trigger)}',
+                            ),
+                            subtitle: Text(
+                              '${o.status} · ${o.gtc ? "GTC" : "expires at local midnight"} · fills only while Sona is open, needs internet${o.note == null ? "" : "\n${o.note}"}',
+                            ),
+                            trailing: o.status == 'pending'
+                                ? IconButton(
+                                    icon: const Icon(Icons.close),
+                                    tooltip: 'Cancel pending order',
+                                    onPressed: () async {
+                                      await app.pendingOrders!.cancel(o.id);
+                                      if (mounted) setState(() {});
+                                    },
+                                  )
+                                : null,
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFF2BBB97),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => selectSide('buy'),
-                        child: SizedBox(
-                          height: 52,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'BUY',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                app.ask == null ? '--' : fmt(app.ask),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
-              ),
-              IgnorePointer(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0ECEA),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    app.spread == null ? '--' : fmt(app.spread),
-                    style: const TextStyle(
-                      color: Color(0xFF10182A),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Spread USD/oz · ${fresh ? 'Live quote' : 'Quote stale or unavailable'} · Tap a side to open the order sheet',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: cDim, fontSize: 10),
-          ),
-          const SizedBox(height: 10),
-          if (app.pendingOrders != null) ...[
-            const SizedBox(height: 12),
-            ...app.pendingOrders!.orders
-                .where(
-                  (o) =>
-                      o.status == 'pending' ||
-                      o.status == 'needsReview' ||
-                      o.status == 'submitting',
-                )
-                .map(
-                  (o) => Card(
-                    child: ListTile(
-                      title: Text(
-                        '${o.side.toUpperCase()} ${o.qty} oz ${o.above ? "at or above" : "at or below"} ${fmt(o.trigger)}',
-                      ),
-                      subtitle: Text(
-                        '${o.status} · ${o.gtc ? "GTC" : "expires at local midnight"} · fills only while Sona is open, needs internet${o.note == null ? "" : "\n${o.note}"}',
-                      ),
-                      trailing: o.status == 'pending'
-                          ? IconButton(
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Cancel pending order',
-                              onPressed: () async {
-                                await app.pendingOrders!.cancel(o.id);
-                                if (mounted) setState(() {});
-                              },
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-          ],
-          const SessionsStrip(),
-          const SizedBox(height: 10),
-          card(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Price alerts',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: alertCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Alert price',
-                          isDense: true,
+                const SessionsStrip(),
+                const SizedBox(height: 10),
+                card(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Price alerts',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => setState(() => alertAbove = !alertAbove),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: cBorder),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          alertAbove ? 'Above' : 'Below',
-                          style: const TextStyle(color: cDim, fontSize: 12),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: alertCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Alert price',
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () =>
+                                setState(() => alertAbove = !alertAbove),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: cBorder),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                alertAbove ? 'Above' : 'Below',
+                                style: const TextStyle(
+                                  color: cDim,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () {
+                              final v = double.tryParse(alertCtrl.text.trim());
+                              if (v != null && v > 0) {
+                                app.addAlert(v, alertAbove);
+                                alertCtrl.clear();
+                              }
+                            },
+                            child: const Text('Add'),
+                          ),
+                        ],
+                      ),
+                      if (app.alerts.isNotEmpty) const SizedBox(height: 8),
+                      ...app.alerts.map(
+                        (a) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(
+                            children: [
+                              Icon(
+                                a.triggered
+                                    ? Icons.notifications_active
+                                    : Icons.notifications_none,
+                                size: 14,
+                                color: a.triggered
+                                    ? const Color(0xFFF5C242)
+                                    : cDim,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  '${a.above ? 'Above' : 'Below'} ${fmt(a.level)}${a.triggered ? '  -  triggered' : ''}',
+                                  style: TextStyle(
+                                    color: a.triggered
+                                        ? const Color(0xFFF5C242)
+                                        : cDim,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => app.removeAlert(a.id),
+                                child: const Icon(
+                                  Icons.delete_outline,
+                                  size: 16,
+                                  color: cDim,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: () {
-                        final v = double.tryParse(alertCtrl.text.trim());
-                        if (v != null && v > 0) {
-                          app.addAlert(v, alertAbove);
-                          alertCtrl.clear();
-                        }
-                      },
-                      child: const Text('Add'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                if (app.alerts.isNotEmpty) const SizedBox(height: 8),
-                ...app.alerts.map(
-                  (a) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
+                const SizedBox(height: 10),
+                if (app.alertBanner != null)
+                  card(
+                    Row(
                       children: [
-                        Icon(
-                          a.triggered
-                              ? Icons.notifications_active
-                              : Icons.notifications_none,
-                          size: 14,
-                          color: a.triggered ? const Color(0xFFF5C242) : cDim,
+                        const Icon(
+                          Icons.notifications_active,
+                          color: Color(0xFFF5C242),
+                          size: 18,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${a.above ? 'Above' : 'Below'} ${fmt(a.level)}${a.triggered ? '  -  triggered' : ''}',
-                            style: TextStyle(
-                              color: a.triggered
-                                  ? const Color(0xFFF5C242)
-                                  : cDim,
+                            'Price alert: XAU/USD ${app.alertBanner!.above ? 'reached' : 'dropped to'} ${fmt(app.alertBanner!.level)}',
+                            style: const TextStyle(
+                              color: Color(0xFFF5C242),
                               fontSize: 12,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                         GestureDetector(
-                          onTap: () => app.removeAlert(a.id),
-                          child: const Icon(
-                            Icons.delete_outline,
-                            size: 16,
-                            color: cDim,
-                          ),
+                          onTap: app.dismissAlertBanner,
+                          child: const Icon(Icons.close, color: cDim, size: 18),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (app.alertBanner != null)
-            card(
-              Row(
-                children: [
-                  const Icon(
-                    Icons.notifications_active,
-                    color: Color(0xFFF5C242),
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Price alert: XAU/USD ${app.alertBanner!.above ? 'reached' : 'dropped to'} ${fmt(app.alertBanner!.level)}',
-                      style: const TextStyle(
-                        color: Color(0xFFF5C242),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: app.dismissAlertBanner,
-                    child: const Icon(Icons.close, color: cDim, size: 18),
-                  ),
-                ],
-              ),
-            ),
-          if (!fresh)
-            card(
-              Row(
-                children: [
-                  const Icon(
-                    Icons.warning_amber,
-                    color: Colors.amber,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      app.priceOk
-                          ? 'Price looks stale - check internet before opening or closing.'
-                          : 'Cannot reach the price feed right now. You can still view, but open/close is paused.',
-                      style: const TextStyle(color: Colors.amber, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          card(
-            Column(
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Daily limits',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _editSlippage(context),
-                      icon: const Icon(Icons.speed, size: 14, color: cDim),
-                      label: Text(
-                        'Slippage: ${app.slippage.label}',
-                        style: const TextStyle(color: cDim, fontSize: 12),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _editDailyLimits(context),
-                      icon: const Icon(
-                        Icons.tune,
-                        size: 14,
-                        color: Color(0xFFF5C242),
-                      ),
-                      label: const Text(
-                        'Set',
-                        style: TextStyle(
-                          color: Color(0xFFF5C242),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _balRow(
-                        'Trades today',
-                        '${app.tradesToday()}${app.maxTradesDay > 0 ? ' / ${app.maxTradesDay}' : ''}',
-                        cDim,
-                      ),
-                    ),
-                    Expanded(
-                      child: _balRow(
-                        'P/L today',
-                        money(app.realizedToday(), sign: true) +
-                            (app.maxDailyLoss > 0
-                                ? ' / -${fmt(app.maxDailyLoss)}'
-                                : ''),
-                        cls(app.realizedToday()),
-                      ),
-                    ),
-                  ],
-                ),
-                if (app.limitWarning() != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Row(
+                if (!fresh)
+                  card(
+                    Row(
                       children: [
                         const Icon(
                           Icons.warning_amber,
                           color: Colors.amber,
-                          size: 16,
+                          size: 18,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            app.limitWarning()!,
+                            app.priceOk
+                                ? 'Price looks stale - check internet before opening or closing.'
+                                : 'Cannot reach the price feed right now. You can still view, but open/close is paused.',
                             style: const TextStyle(
                               color: Colors.amber,
                               fontSize: 12,
@@ -1878,21 +1691,233 @@ class _TradeTabState extends State<TradeTab> {
                       ],
                     ),
                   ),
-                Row(
+                card(
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Daily limits',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _editSlippage(context),
+                            icon: const Icon(
+                              Icons.speed,
+                              size: 14,
+                              color: cDim,
+                            ),
+                            label: Text(
+                              'Slippage: ${app.slippage.label}',
+                              style: const TextStyle(color: cDim, fontSize: 12),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _editDailyLimits(context),
+                            icon: const Icon(
+                              Icons.tune,
+                              size: 14,
+                              color: Color(0xFFF5C242),
+                            ),
+                            label: const Text(
+                              'Set',
+                              style: TextStyle(
+                                color: Color(0xFFF5C242),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _balRow(
+                              'Trades today',
+                              '${app.tradesToday()}${app.maxTradesDay > 0 ? ' / ${app.maxTradesDay}' : ''}',
+                              cDim,
+                            ),
+                          ),
+                          Expanded(
+                            child: _balRow(
+                              'P/L today',
+                              money(app.realizedToday(), sign: true) +
+                                  (app.maxDailyLoss > 0
+                                      ? ' / -${fmt(app.maxDailyLoss)}'
+                                      : ''),
+                              cls(app.realizedToday()),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (app.limitWarning() != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber,
+                                color: Colors.amber,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  app.limitWarning()!,
+                                  style: const TextStyle(
+                                    color: Colors.amber,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Block new trades at limit',
+                              style: TextStyle(fontSize: 12, color: cDim),
+                            ),
+                          ),
+                          Switch(
+                            value: app.blockOnLimit,
+                            activeTrackColor: cGreen,
+                            onChanged: (v) =>
+                                setState(() => app.setDailyLimits(block: v)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            key: const ValueKey('trade-actions-frame'),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFF10182A),
+              border: Border(top: BorderSide(color: cBorder)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
                   children: [
-                    const Expanded(
-                      child: Text(
-                        'Block new trades at limit',
-                        style: TextStyle(fontSize: 12, color: cDim),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Material(
+                            color: const Color(0xFFDE1557),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => selectSide('sell'),
+                              child: SizedBox(
+                                height: 52,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'SELL',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      app.bid == null ? '--' : fmt(app.bid),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Material(
+                            color: const Color(0xFF2BBB97),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => selectSide('buy'),
+                              child: SizedBox(
+                                height: 52,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'BUY',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      app.ask == null ? '--' : fmt(app.ask),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0ECEA),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          app.spread == null ? '--' : fmt(app.spread),
+                          style: const TextStyle(
+                            color: Color(0xFF10182A),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
-                    Switch(
-                      value: app.blockOnLimit,
-                      activeTrackColor: cGreen,
-                      onChanged: (v) =>
-                          setState(() => app.setDailyLimits(block: v)),
-                    ),
                   ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Spread USD/oz · ${fresh ? 'Live quote' : 'Quote stale or unavailable'} · Tap a side to open the order sheet',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: cDim, fontSize: 10),
                 ),
               ],
             ),
@@ -3939,7 +3964,8 @@ class EquityPainter extends CustomPainter {
 /// visible; nothing trades unless the user switches Auto mode on.
 class AiTab extends StatefulWidget {
   final dynamic app;
-  const AiTab({super.key, required this.app});
+  final VoidCallback? onExplainChart;
+  const AiTab({super.key, required this.app, this.onExplainChart});
 
   @override
   State<AiTab> createState() => _AiTabState();
@@ -4096,6 +4122,20 @@ class _AiTabState extends State<AiTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (widget.onExplainChart != null) ...[
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.lightbulb_outline),
+              title: const Text('Explain chart / position'),
+              subtitle: const Text(
+                'Explain the current Trade chart snapshot. Read-only; asks before sending data to Groq.',
+              ),
+              onTap: widget.onExplainChart,
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
         Card(
           color: cCard,
           child: Padding(

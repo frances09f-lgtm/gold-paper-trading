@@ -227,6 +227,7 @@ void main() {
       final app = demoState();
       final count = app.positions.length;
       await t.binding.setSurfaceSize(const Size(412, 915));
+      addTearDown(() => t.binding.setSurfaceSize(null));
       await t.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),

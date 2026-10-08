@@ -29,9 +29,9 @@ class OroWatchService : Service() {
         super.onCreate()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "Oro watch", NotificationManager.IMPORTANCE_MIN
+                CHANNEL_ID, "Sona watch", NotificationManager.IMPORTANCE_MIN
             )
-            channel.description = "Shows while Oro is watching your open positions"
+            channel.description = "Shows while Sona is watching your open positions"
             channel.setShowBadge(false)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -52,7 +52,7 @@ class OroWatchService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
         return builder
-            .setContentTitle("Oro is watching")
+            .setContentTitle("Sona is watching")
             .setContentText(text)
             .setSmallIcon(applicationInfo.icon)
             .setContentIntent(openApp)

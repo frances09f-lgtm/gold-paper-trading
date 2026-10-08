@@ -901,6 +901,15 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
             ),
             actions: [
               IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SonaSettingsScreen(app: app),
+                  ),
+                ),
+              ),
+              IconButton(
                 tooltip: 'Paper account',
                 icon: Icon(
                   app.unlocked
@@ -999,6 +1008,34 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
       },
     );
   }
+}
+
+class SonaSettingsScreen extends StatelessWidget {
+  final AppState app;
+  const SonaSettingsScreen({super.key, required this.app});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Settings')),
+    body: ListView(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.key_outlined),
+          title: const Text('API settings'),
+          subtitle: const Text('Twelve Data candles and Groq AI keys'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const ApiKeysScreen())),
+        ),
+        ListTile(
+          leading: const Icon(Icons.account_circle_outlined),
+          title: const Text('Paper account'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => LockScreen(app: app))),
+        ),
+      ],
+    ),
+  );
 }
 
 class LockScreen extends StatefulWidget {
@@ -1253,12 +1290,6 @@ class _TradeTabState extends State<TradeTab> {
                       color: const Color(0xFFDE1557),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: dir == 'sell'
-                              ? const Color(0xFFF5C242)
-                              : Colors.transparent,
-                          width: 3,
-                        ),
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
@@ -1297,12 +1328,6 @@ class _TradeTabState extends State<TradeTab> {
                       color: const Color(0xFF2BBB97),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: dir == 'buy'
-                              ? const Color(0xFFF5C242)
-                              : Colors.transparent,
-                          width: 3,
-                        ),
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),

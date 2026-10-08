@@ -66,6 +66,17 @@ double? pnlAtLevel(Map<String, dynamic> t, double? level) {
   return (level - entry) * dir * qty;
 }
 
+double? quickProtectionLevel(
+  Map<String, dynamic> position,
+  String key,
+  double offset,
+) {
+  final entry = (position['entry'] as num?)?.toDouble();
+  if (entry == null || !entry.isFinite) return null;
+  final buy = position['direction'] == 'buy';
+  return entry + ((key == 'tp') == buy ? offset : -offset);
+}
+
 class RpcException implements Exception {
   final String message;
   final bool badPin;
@@ -2331,6 +2342,28 @@ class _PositionsTabState extends State<PositionsTab> {
                 ),
                 decoration: const InputDecoration(),
               ),
+              if (open != null)
+                Wrap(
+                  spacing: 8,
+                  children: [1, 3, 5, 10]
+                      .map(
+                        (offset) => ActionChip(
+                          label: Text('${key == "tp" ? "+" : "-"}$offset'),
+                          onPressed: () {
+                            final level = quickProtectionLevel(
+                              t,
+                              key,
+                              offset.toDouble(),
+                            );
+                            if (level != null) {
+                              ctrl.text = fmt(level);
+                              setD(() => error = null);
+                            }
+                          },
+                        ),
+                      )
+                      .toList(),
+                ),
               Builder(
                 builder: (_) {
                   final v = double.tryParse(ctrl.text.trim());

@@ -14,6 +14,13 @@ void main() {
     expect(pnlAtLevel(p, 4119), closeTo(.0232, 1e-9));
     expect(pnlAtLevel(p, 4115), closeTo(-.0168, 1e-9));
   });
+  test('quick offsets respect position direction and price units', () {
+    for (final dir in ['buy', 'sell']) {
+      final p = {'direction': dir, 'entry': 4000, 'qty': .01};
+      expect(quickProtectionLevel(p, 'tp', 3), dir == 'buy' ? 4003 : 3997);
+      expect(quickProtectionLevel(p, 'sl', 3), dir == 'buy' ? 3997 : 4003);
+    }
+  });
   testWidgets('TP edits update projected profit live', (t) async {
     await loadFonts();
     final app = AppState()

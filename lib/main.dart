@@ -4,6 +4,7 @@ import 'user_api_keys.dart';
 import 'pending_orders.dart';
 import 'paper_margin.dart';
 import 'chart_explanation.dart';
+import 'learn_screen.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -1058,6 +1059,15 @@ class SonaSettingsScreen extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context)
               .push(MaterialPageRoute(builder: (_) => const ApiKeysScreen())),
+        ),
+        ListTile(
+          leading: const Icon(Icons.school_outlined),
+          title: const Text('Learn paper trading'),
+          subtitle: const Text('Oz, spread, TP/SL and estimated margin'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () =>
+              Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const LearnScreen())),
         ),
         ListTile(
           leading: const Icon(Icons.account_circle_outlined),
